@@ -1,0 +1,52 @@
+[project]
+name = "mcp-auth-prototype"
+version = "0.1.0"
+description = "Secure MCP server prototype with JWT auth and scope-based tool access"
+requires-python = ">=3.11"
+
+# Runtime dependencies - these are bundled into the Docker image
+dependencies = [
+    # MCP server framework: wraps the official `mcp` SDK and adds middleware
+    # hooks (on_list_tools, on_call_tool) that we need for scope-based filtering.
+    # Also handles Streamable HTTP transport internally via Starlette.
+    "fastmcp>=2,<3",
+
+    # JWT token validation: decodes and verifies Bearer tokens from requests.
+    # We use HS256 symmetric signing for the prototype (shared secret between
+    # the token generator and the server).
+    "pyjwt>=2.8.0",
+
+    # Configuration from environment variables: lets us define typed settings
+    # that automatically read from env vars (12-factor app pattern).
+    # This is how the JWT secret, port, and log level get into the app.
+    "pydantic-settings>=2.1.0",
+
+    # ASGI server: runs our Starlette/FastMCP app and listens for HTTP requests.
+    # In production (Docker), this is the process that binds to port 8080.
+    "uvicorn>=0.24.0",
+]
+
+# Dev dependencies - only installed locally, NOT in the Docker image.
+# The Dockerfile uses `uv sync --no-dev` to exclude these.
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",           # Test framework
+    "pytest-asyncio>=0.21.0",  # Async test support (MCP uses async internally)
+    "httpx>=0.25.0",           # HTTP client for testing endpoints
+    "ruff>=0.1.0",             # Fast Python linter and formatter
+]
+
+# Ruff configuration: a fast Python linter written in Rust.
+# We configure it here rather than in a separate ruff.toml.
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# E = pycodestyle errors, F = pyflakes, I = isort (import sorting)
+select = ["E", "F", "I"]
+
+# pytest configuration
+[tool.pytest.ini_options]
+asyncio_mode = "auto"  # Automatically handle async test functions
+testpaths = ["tests"]  # Tell pytest where to find tests

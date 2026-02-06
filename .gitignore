@@ -1,1 +1,34 @@
+# Environment variables (may contain secrets like JWT_SECRET_KEY)
 .env
+
+# Python virtual environment (created by `uv sync`)
+.venv/
+
+# Python bytecode cache (generated at import time)
+__pycache__/
+*.pyc
+*.pyo
+
+# Distribution / packaging artifacts
+dist/
+build/
+*.egg-info/
+
+# Test and linter caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code local settings (user-specific permissions, not project config)
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+Thumbs.db

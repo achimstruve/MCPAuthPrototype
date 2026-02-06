@@ -1,0 +1,186 @@
+# MCP Auth Prototype
+
+A secure [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server demonstrating enterprise-grade access control patterns. Built with Python and [FastMCP v2](https://gofastmcp.com), this prototype implements JWT-based authentication and scope-based tool authorization, designed for deployment on Google Kubernetes Engine.
+
+## What This Demonstrates
+
+- **Token-based authentication**: Every MCP request requires a valid JWT Bearer token
+- **Scope-based authorization**: Token scopes determine which tools a client can see and call
+- **Defense in depth**: Tool list filtering AND tool call validation (two independent checks)
+- **Structured audit logging**: Every auth decision logged as JSON for cloud logging systems
+- **12-factor configuration**: All settings via environment variables
+- **Kubernetes-ready**: Health and readiness probe endpoints
+
+## Architecture
+
+```
+Client (Claude Code, MCP client)
+  │
+  │  Authorization: Bearer <jwt>
+  ▼
+┌─────────────────────────────────┐
+│  FastMCP Server (port 8080)     │
+│                                 │
+│  ┌───────────────────────────┐  │
+│  │  AuthMiddleware           │  │
+│  │  1. Extract Bearer token  │  │
+│  │  2. Validate JWT (sig+exp)│  │
+│  │  3. Filter tools by scope │  │
+│  │  4. Block unauthorized    │  │
+│  └───────────────────────────┘  │
+│                                 │
+│  ┌───────────┐ ┌─────────────┐  │
+│  │ get_public│ │get_confiden-│  │
+│  │ _info     │ │tial_info    │  │
+│  │           │ │             │  │
+│  │ scope:    │ │ scope:      │  │
+│  │ public:   │ │ confidenti- │  │
+│  │ read      │ │ al:read     │  │
+│  └───────────┘ └─────────────┘  │
+│                                 │
+│  /health  /ready  /mcp          │
+└─────────────────────────────────┘
+```
+
+### Access Control Matrix
+
+| Token Scopes | Visible Tools | Can Call |
+|---|---|---|
+| `["public:read"]` | `get_public_info` only | `get_public_info` only |
+| `["public:read", "confidential:read"]` | Both tools | Both tools |
+| `[]` | None | None |
+| No token / expired / invalid | Rejected (AuthError) | Rejected (AuthError) |
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### Install and Run
+
+```bash
+# Install dependencies
+uv sync
+
+# Start the server
+uv run python -m src.server
+```
+
+The server starts on `http://localhost:8080` with:
+- MCP endpoint: `POST /mcp` (Streamable HTTP transport)
+- Health check: `GET /health`
+- Readiness check: `GET /ready`
+
+### Generate a Token
+
+```bash
+# Public access only
+uv run python -m scripts.generate_token --sub alice --scope public:read
+
+# Full access
+uv run python -m scripts.generate_token --sub bob --scope public:read confidential:read
+
+# Expired token (for testing rejection)
+uv run python -m scripts.generate_token --sub charlie --scope public:read --exp-hours -1
+```
+
+### Connect with Claude Code
+
+```bash
+# Generate a token
+TOKEN=$(uv run python -m scripts.generate_token --sub myuser --scope public:read confidential:read 2>&1 | grep "^Token:" | cut -d' ' -f2)
+
+# Add the MCP server to Claude Code
+claude mcp add --transport http mcp-auth-prototype http://localhost:8080/mcp \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+### Test with curl
+
+```bash
+# Generate a token
+TOKEN=$(uv run python -m scripts.generate_token --sub alice --scope public:read 2>&1 | grep "^Token:" | cut -d' ' -f2)
+
+# Initialize MCP session
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
+## Development
+
+```bash
+# Run tests
+uv run pytest -v
+
+# Lint
+uv run ruff check .
+```
+
+### Project Structure
+
+```
+mcp-auth-prototype/
+├── src/
+│   ├── server.py          # MCP server, auth middleware, health endpoints
+│   ├── auth.py            # JWT validation and scope extraction
+│   ├── tools.py           # Tool-to-scope mapping registry
+│   └── config.py          # Environment-based configuration (pydantic-settings)
+├── documents/
+│   ├── public.md          # Sample public company document
+│   └── confidential.md    # Sample confidential strategy document
+├── scripts/
+│   └── generate_token.py  # CLI utility to mint JWT tokens
+├── tests/
+│   ├── conftest.py        # Shared test fixtures (token factories)
+│   ├── test_auth.py       # Unit tests for JWT validation (16 tests)
+│   └── test_tools.py      # Integration tests for tool authorization (6 tests)
+├── pyproject.toml         # Dependencies and tool configuration
+└── uv.lock                # Locked dependency versions
+```
+
+## Configuration
+
+All settings are read from environment variables with the `MCP_` prefix:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_HOST` | `0.0.0.0` | Network interface to bind to |
+| `MCP_PORT` | `8080` | Server port |
+| `MCP_LOG_LEVEL` | `info` | Logging verbosity (`debug`, `info`, `warning`, `error`) |
+| `MCP_JWT_SECRET_KEY` | `dev-secret-change-me` | JWT signing key (override in production) |
+| `MCP_JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
+| `MCP_DOCUMENTS_DIR` | `documents` | Path to document files |
+
+You can also set these in a `.env` file (gitignored).
+
+## Technology Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| MCP Server | [FastMCP v2](https://gofastmcp.com) | MCP protocol with middleware hooks |
+| Authentication | [PyJWT](https://pyjwt.readthedocs.io) | JWT token validation |
+| Configuration | [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | Typed env var config |
+| HTTP Server | [Uvicorn](https://www.uvicorn.org) | ASGI server |
+| Testing | pytest + httpx | Unit and integration tests |
+| Linting | [Ruff](https://docs.astral.sh/ruff/) | Fast Python linter |
+| Package Manager | [uv](https://docs.astral.sh/uv/) | Fast Python package manager |
+
+## Roadmap
+
+See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for the full build plan. Current status:
+
+- [x] Phase 0: Project scaffolding
+- [x] Phase 1: MCP server with tools
+- [x] Phase 2: Authentication and authorization
+- [x] Phase 3: Tests
+- [ ] Phase 4: Dockerize
+- [ ] Phase 5: GCP and GKE cluster setup
+- [ ] Phase 6: Helm chart
+- [ ] Phase 7: GitHub Actions CI pipeline
+- [ ] Phase 8: ArgoCD
+- [ ] Phase 9: End-to-end verification
