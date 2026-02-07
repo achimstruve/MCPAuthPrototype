@@ -86,6 +86,13 @@ uv run python -m scripts.generate_token --sub bob --scope public:read confidenti
 uv run python -m scripts.generate_token --sub charlie --scope public:read --exp-hours -1
 ```
 
+> **Note:** The token must be signed with the same secret the server uses. By default, both
+> use `dev-secret-change-me`. If you run the server with a custom secret (e.g.,
+> `MCP_JWT_SECRET_KEY=my-secret`), you must generate tokens with the matching `--secret` flag:
+> ```bash
+> uv run python -m scripts.generate_token --sub alice --scope public:read --secret my-secret
+> ```
+
 ### Connect with Claude Code
 
 ```bash
@@ -156,8 +163,8 @@ curl http://localhost:8080/health
 # Verify readiness endpoint
 curl http://localhost:8080/ready
 
-# Generate a token (on host, using local Python)
-TOKEN=$(uv run python -m scripts.generate_token --sub alice --scope public:read 2>&1 | grep "^Token:" | cut -d' ' -f2)
+# Generate a token (must use --secret matching the container's MCP_JWT_SECRET_KEY)
+TOKEN=$(uv run python -m scripts.generate_token --sub alice --scope public:read --secret my-secret 2>&1 | grep "^Token:" | cut -d' ' -f2)
 
 # Test MCP initialization against the container
 curl -X POST http://localhost:8080/mcp \
