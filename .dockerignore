@@ -1,0 +1,78 @@
+# =============================================================================
+# .dockerignore — files excluded from the Docker build context
+# =============================================================================
+#
+# When you run `docker build`, Docker sends the entire directory (the "build
+# context") to the Docker daemon. This file tells Docker which files to skip.
+#
+# Why this matters:
+# - Smaller build context = faster builds (less data to send to daemon)
+# - Prevents secrets (.env, .git credentials) from ending up in the image
+# - Prevents unnecessary cache invalidation (changes to tests shouldn't
+#   trigger a rebuild of the app image)
+#
+# Pattern: exclude everything that isn't needed at runtime.
+# The Dockerfile only needs: pyproject.toml, uv.lock, src/, documents/
+# =============================================================================
+
+# Version control — never needed in the image, and .git can be huge
+.git
+.gitignore
+
+# Python virtual environment — we build a fresh one in the Docker image.
+# Including the local .venv would waste space and may have wrong platform binaries.
+.venv/
+
+# Python bytecode — regenerated at runtime, platform-dependent
+__pycache__/
+*.pyc
+*.pyo
+
+# Test files — not needed in production images
+tests/
+
+# Development tooling configs
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Helm chart and Kubernetes manifests — deployment config, not app code
+helm/
+
+# CI/CD workflows — GitHub-specific, not needed in the image
+.github/
+
+# ArgoCD config — cluster-level config, not app code
+argocd/
+
+# Scripts — development utilities (token generation etc.), not runtime code
+scripts/
+
+# Documentation — not needed at runtime
+README.md
+CLAUDE.md
+IMPLEMENTATION_ROADMAP.md
+PRD_Secure_MCP_Server_Prototype.md
+
+# Environment files — may contain secrets, NEVER include in images
+.env
+.env.*
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

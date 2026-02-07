@@ -1,1 +1,1 @@
-Implement the next step of the @IMPLEMENTATION_ROADMAP.md given the @PRD_Secure_MCP_Server_Prototype.md
+Implement the next step of the @IMPLEMENTATION_ROADMAP.md given the @PRD_Secure_MCP_Server_Prototype.md. Account for the integration points of existing implementations.

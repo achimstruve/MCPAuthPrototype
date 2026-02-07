@@ -88,12 +88,12 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 **Goal:** Multi-stage Docker image using uv for fast, reproducible builds.
 
-- [ ] **[AGENT]** Create `Dockerfile`: multi-stage build (Stage 1: `ghcr.io/astral-sh/uv:python3.11-bookworm` for dependency install, Stage 2: `python:3.11-slim` for runtime with only `.venv`, `src/`, `documents/`)
-- [ ] **[AGENT]** Create `.dockerignore`: exclude `.git`, `.venv`, `__pycache__`, `tests/`, `helm/`, `.github/`, markdown files except documents
-- [ ] **[HUMAN]** Build Docker image: `docker build -t mcp-auth-prototype:local .`
-- [ ] **[HUMAN]** Run container: `docker run -p 8080:8080 -e MCP_JWT_SECRET_KEY=test-secret mcp-auth-prototype:local`
-- [ ] **[HUMAN]** Test health endpoint: `curl http://localhost:8080/health`
-- [ ] **[HUMAN]** Generate a token with matching secret and verify auth works against the container
+- [x] **[AGENT]** Create `Dockerfile`: multi-stage build (Stage 1: `ghcr.io/astral-sh/uv:python3.11-bookworm` for dependency install, Stage 2: `python:3.11-slim` for runtime with only `.venv`, `src/`, `documents/`)
+- [x] **[AGENT]** Create `.dockerignore`: exclude `.git`, `.venv`, `__pycache__`, `tests/`, `helm/`, `.github/`, markdown files except documents
+- [x] **[HUMAN]** Build Docker image: `docker build -t mcp-auth-prototype:local .`
+- [x] **[HUMAN]** Run container: `docker run -p 8080:8080 -e MCP_JWT_SECRET_KEY=test-secret mcp-auth-prototype:local`
+- [x] **[HUMAN]** Test health endpoint: `curl http://localhost:8080/health`
+- [x] **[HUMAN]** Generate a token with matching secret and verify auth works against the container
 
 **Verify before moving on:** Docker image builds, container starts and responds to health checks, auth works with environment-injected secret.
 
