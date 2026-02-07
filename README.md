@@ -121,6 +121,52 @@ uv run pytest -v
 uv run ruff check .
 ```
 
+## Docker
+
+Build and test the container image locally before deploying to Kubernetes.
+
+### Build the Image
+
+```bash
+# Build the Docker image
+docker build -t mcp-auth-prototype:local .
+```
+
+The multi-stage build creates a minimal ~150MB image containing only the runtime dependencies.
+
+### Run the Container
+
+```bash
+# Run with a custom JWT secret (required for production)
+docker run -p 8080:8080 -e MCP_JWT_SECRET_KEY=my-secret mcp-auth-prototype:local
+
+# Run with debug logging
+docker run -p 8080:8080 \
+  -e MCP_JWT_SECRET_KEY=my-secret \
+  -e MCP_LOG_LEVEL=debug \
+  mcp-auth-prototype:local
+```
+
+### Test the Container
+
+```bash
+# Verify health endpoint
+curl http://localhost:8080/health
+
+# Verify readiness endpoint
+curl http://localhost:8080/ready
+
+# Generate a token (on host, using local Python)
+TOKEN=$(uv run python -m scripts.generate_token --sub alice --scope public:read 2>&1 | grep "^Token:" | cut -d' ' -f2)
+
+# Test MCP initialization against the container
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+```
+
 ### Project Structure
 
 ```
