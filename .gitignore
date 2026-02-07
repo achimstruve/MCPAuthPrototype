@@ -32,3 +32,37 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# =============================================================================
+# Terraform
+# =============================================================================
+# Local .terraform directories (provider plugins, modules)
+**/.terraform/*
+
+# Terraform state files (contain sensitive data like resource IDs, outputs)
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Variable definitions (may contain sensitive values)
+*.tfvars
+*.tfvars.json
+
+# Keep the example file
+!*.tfvars.example
+
+# Override files (local development overrides)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# Lock file (can be committed, but we exclude for simplicity)
+.terraform.lock.hcl

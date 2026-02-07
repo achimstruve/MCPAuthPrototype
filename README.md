@@ -192,6 +192,14 @@ mcp-auth-prototype/
 │   ├── conftest.py        # Shared test fixtures (token factories)
 │   ├── test_auth.py       # Unit tests for JWT validation (16 tests)
 │   └── test_tools.py      # Integration tests for tool authorization (6 tests)
+├── terraform/             # Infrastructure as Code
+│   ├── main.tf            # Provider and backend configuration
+│   ├── variables.tf       # Input variables
+│   ├── outputs.tf         # Output values
+│   ├── gke.tf             # GKE cluster definition
+│   ├── artifact-registry.tf  # Container registry
+│   ├── secret-manager.tf  # Secret Manager resources
+│   └── iam.tf             # Service accounts and IAM bindings
 ├── pyproject.toml         # Dependencies and tool configuration
 └── uv.lock                # Locked dependency versions
 ```
@@ -222,6 +230,10 @@ You can also set these in a `.env` file (gitignored).
 | Testing | pytest + httpx | Unit and integration tests |
 | Linting | [Ruff](https://docs.astral.sh/ruff/) | Fast Python linter |
 | Package Manager | [uv](https://docs.astral.sh/uv/) | Fast Python package manager |
+| Infrastructure | [Terraform](https://www.terraform.io/) | Infrastructure as Code for GCP resources |
+| Container Registry | GCP Artifact Registry | Docker image storage |
+| Orchestration | Google Kubernetes Engine | Container orchestration |
+| Secrets | GCP Secret Manager + ESO | Secure secret management |
 
 ## Roadmap
 
@@ -231,8 +243,8 @@ See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for the full build pl
 - [x] Phase 1: MCP server with tools
 - [x] Phase 2: Authentication and authorization
 - [x] Phase 3: Tests
-- [ ] Phase 4: Dockerize
-- [ ] Phase 5: GCP and GKE cluster setup
+- [x] Phase 4: Dockerize
+- [x] Phase 5: GCP Infrastructure + Terraform + GKE *(GKE cluster created, ESO installation pending)*
 - [ ] Phase 6: Helm chart
 - [ ] Phase 7: GitHub Actions CI pipeline
 - [ ] Phase 8: ArgoCD

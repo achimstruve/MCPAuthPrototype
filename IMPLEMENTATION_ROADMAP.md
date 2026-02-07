@@ -101,41 +101,58 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 ---
 
-## Phase 5: GCP and GKE Cluster Setup
+## Phase 5: GCP Infrastructure Setup (with Terraform)
 
-**Goal:** Set up all GCP infrastructure: Artifact Registry, Secret Manager, GKE cluster, External Secrets Operator.
+**Goal:** Set up all GCP infrastructure using Terraform for Infrastructure as Code (IaC): APIs, Artifact Registry, Secret Manager, GKE cluster, and IAM for Workload Identity. Then install External Secrets Operator via Helm.
 
-> **This is a key learning phase.** The human executes all commands manually. The agent provides each command with a detailed explanation of what it does, what each flag means, and what to expect.
+> **This is a key learning phase.** We use a hybrid approach: some resources were created manually first (to learn the concepts), then we adopt Terraform to manage infrastructure declaratively. Terraform imports existing resources into its state.
 
-### 5a: GCP Project and APIs
-- [ ] **[HUMAN]** Set active GCP project: `gcloud config set project <project-id>`
-- [ ] **[HUMAN]** Enable required APIs: Container, Artifact Registry, Secret Manager
+### 5a: GCP Project and APIs (Manual - Completed)
+- [x] **[HUMAN]** Set active GCP project: `gcloud config set project mcpauthprototype`
+- [x] **[HUMAN]** Enable required APIs: Container, Artifact Registry, Secret Manager
 
-### 5b: Artifact Registry
-- [ ] **[HUMAN]** Create Docker repository in Artifact Registry (region: `europe-west1`)
-- [ ] **[HUMAN]** Configure Docker authentication for the registry
-- [ ] **[HUMAN]** Tag and push the local Docker image to Artifact Registry
-- [ ] **[HUMAN]** Verify image appears: `gcloud artifacts docker images list ...`
+### 5b: Artifact Registry (Manual - Completed)
+- [x] **[HUMAN]** Create Docker repository in Artifact Registry (region: `europe-west1`)
+- [x] **[HUMAN]** Configure Docker authentication for the registry
+- [x] **[HUMAN]** Tag and push the local Docker image to Artifact Registry
+- [x] **[HUMAN]** Verify image appears: `gcloud artifacts docker images list ...`
 
-### 5c: Secret Manager
-- [ ] **[HUMAN]** Generate a strong JWT signing key
-- [ ] **[HUMAN]** Store it in GCP Secret Manager as `mcp-jwt-signing-key`
-- [ ] **[HUMAN]** Verify it can be read back: `gcloud secrets versions access latest --secret=mcp-jwt-signing-key`
+### 5c: Secret Manager (Manual - Completed)
+- [x] **[HUMAN]** Generate a strong JWT signing key
+- [x] **[HUMAN]** Store it in GCP Secret Manager as `mcp-jwt-signing-key`
+- [x] **[HUMAN]** Verify it can be read back: `gcloud secrets versions access latest --secret=mcp-jwt-signing-key`
 
-### 5d: GKE Cluster
-- [ ] **[HUMAN]** Create GKE Standard cluster: 3 nodes, `e2-small`, single zone, Workload Identity enabled
-- [ ] **[HUMAN]** Get cluster credentials for kubectl
+### 5d: Terraform Setup (Completed)
+- [x] **[AGENT]** Create `terraform/main.tf`: provider configuration and terraform settings
+- [x] **[AGENT]** Create `terraform/variables.tf`: input variables (project_id, region, zone)
+- [x] **[AGENT]** Create `terraform/outputs.tf`: output values (cluster endpoint, registry URL)
+- [x] **[AGENT]** Create `terraform/artifact-registry.tf`: Artifact Registry repository resource
+- [x] **[AGENT]** Create `terraform/secret-manager.tf`: Secret Manager secret resource (structure only)
+- [x] **[AGENT]** Create `terraform/gke.tf`: GKE cluster resource with Workload Identity
+- [x] **[AGENT]** Create `terraform/iam.tf`: Service accounts and Workload Identity bindings
+- [x] **[AGENT]** Update `.gitignore`: add Terraform patterns (`.terraform/`, `*.tfstate`, `*.tfvars`)
+- [x] **[HUMAN]** Install Terraform CLI
+- [x] **[HUMAN]** Run `terraform init` to initialize providers
+- [x] **[HUMAN]** Import existing resources into Terraform state:
+  - `terraform import google_artifact_registry_repository.mcp_server ...`
+  - `terraform import google_secret_manager_secret.jwt_signing_key ...`
+- [x] **[HUMAN]** Run `terraform plan` to verify no changes needed for imported resources
+- [x] **[HUMAN]** Run `terraform apply` to create GKE cluster and IAM resources
+- [ ] **[HUMAN]** Get cluster credentials: `gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b`
 - [ ] **[HUMAN]** Verify: `kubectl get nodes` shows 3 nodes in Ready state
 
-### 5e: External Secrets Operator
+### 5e: External Secrets Operator (Helm)
 - [ ] **[HUMAN]** Add ESO Helm repo and install ESO into the cluster
-- [ ] **[HUMAN]** Create GCP service account for ESO with Secret Manager access
-- [ ] **[HUMAN]** Configure Workload Identity binding between K8s service account and GCP service account
 - [ ] **[HUMAN]** Verify ESO pods are running: `kubectl get pods -n external-secrets`
 
-**Verify before moving on:** 3 nodes running, image in Artifact Registry, secret in Secret Manager, ESO installed and healthy.
+**Verify before moving on:** 3 nodes running, image in Artifact Registry, secret in Secret Manager, ESO installed and healthy, all resources tracked in Terraform state.
 
-**Key learning:** GKE Standard vs Autopilot, Workload Identity (why it's better than service account keys), Artifact Registry (why not Docker Hub), Secret Manager (why not K8s secrets directly), ESO architecture.
+**Key learning:**
+- **Terraform**: Declarative IaC, state management, resource imports, plan/apply workflow
+- **GKE**: Standard vs Autopilot, node pools, Workload Identity
+- **Workload Identity**: Why it's better than service account keys
+- **Secret Manager**: Why not K8s secrets directly (audit, versioning, central management)
+- **ESO**: Bridges external secrets to Kubernetes
 
 ---
 
@@ -237,7 +254,7 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 | 2 | Auth + authorization | Agent | JWT, middleware, scopes, defense in depth |
 | 3 | Tests | Agent | Testing auth, shift-left security |
 | 4 | Docker | Agent writes, Human builds | Multi-stage builds, 12-factor config |
-| 5 | GCP + GKE setup | **Human (guided)** | **GKE, Workload Identity, Secret Manager, ESO** |
+| 5 | GCP + Terraform + GKE | Agent writes, **Human applies** | **Terraform IaC, GKE, Workload Identity, ESO** |
 | 6 | Helm chart | Agent writes, **Human deploys** | **Helm templating, K8s resources, probes** |
 | 7 | GitHub Actions CI | Agent writes, **Human configures** | **CI/CD, Workload Identity Federation** |
 | 8 | ArgoCD | Agent writes, **Human installs** | **GitOps, auto-sync, rolling updates** |

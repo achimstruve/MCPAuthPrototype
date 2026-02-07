@@ -156,6 +156,7 @@ Logs output as JSON for compatibility with cloud logging systems.
 | Authentication | PyJWT | Token validation |
 | Containerization | Docker | Package application |
 | Container Registry | GCP Artifact Registry | Store container images |
+| **Infrastructure as Code** | **Terraform** | **Declarative GCP resource provisioning** |
 | Orchestration | Google Kubernetes Engine | Run containers |
 | Package Management | Helm | Kubernetes templating |
 | GitOps / CD | ArgoCD | Continuous deployment |
@@ -190,21 +191,42 @@ The GKE cluster is provisioned with **3 nodes** to create a realistic Kubernetes
 | Region/Zone | Single zone (e.g., `europe-west1-b`) | Multi-zone is unnecessary for a prototype and doubles cost |
 | Kubernetes version | Latest stable (default release channel) | Keeps things current without chasing bleeding edge |
 
-**Cluster Provisioning:**
+**Cluster Provisioning (Terraform):**
 
-The cluster is created via `gcloud` CLI commands (not Terraform), keeping infrastructure setup simple and transparent:
+All GCP infrastructure is provisioned using **Terraform**, enabling Infrastructure as Code (IaC) practices:
 
+```hcl
+# terraform/gke.tf - Declarative cluster definition
+resource "google_container_cluster" "mcp_prototype" {
+  name     = "mcp-prototype"
+  location = "europe-west1-b"
+
+  initial_node_count = 3
+
+  node_config {
+    machine_type = "e2-small"
+    disk_size_gb = 30
+  }
+
+  release_channel {
+    channel = "REGULAR"
+  }
+
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+}
+```
+
+**Why Terraform instead of CLI commands:**
+- **Reproducibility**: Infrastructure is defined in code, can be recreated identically
+- **State tracking**: Terraform knows what exists and what needs to change
+- **Collaboration**: Team members can review infrastructure changes in Git
+- **Import capability**: Existing manually-created resources can be imported into Terraform state
+- **Production pattern**: This is how enterprises manage cloud infrastructure
+
+After `terraform apply`, get cluster credentials:
 ```bash
-# Create the GKE cluster with 3 nodes
-gcloud container clusters create mcp-prototype \
-  --zone europe-west1-b \
-  --num-nodes 3 \
-  --machine-type e2-small \
-  --disk-size 30 \
-  --release-channel regular \
-  --workload-pool=<project-id>.svc.id.goog  # Enables Workload Identity for GCP Secret Manager access
-
-# Get credentials for kubectl
 gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b
 ```
 
@@ -278,6 +300,15 @@ mcp-auth-prototype/
 │   ├── conftest.py         # Shared test fixtures
 │   ├── test_auth.py        # Token validation tests
 │   └── test_tools.py       # Tool authorization tests
+├── terraform/              # Infrastructure as Code (Terraform)
+│   ├── main.tf             # Provider configuration and backend
+│   ├── variables.tf        # Input variables (project_id, region, etc.)
+│   ├── outputs.tf          # Output values (cluster endpoint, registry URL)
+│   ├── gke.tf              # GKE cluster resource definition
+│   ├── artifact-registry.tf # Artifact Registry repository
+│   ├── secret-manager.tf   # Secret Manager secret (structure only, not value)
+│   ├── iam.tf              # Service accounts and IAM bindings for Workload Identity
+│   └── terraform.tfvars    # Variable values (gitignored for sensitive data)
 ├── Dockerfile              # Multi-stage build with uv
 ├── .dockerignore
 ├── pyproject.toml          # Dependencies and project metadata
@@ -300,6 +331,8 @@ mcp-auth-prototype/
 ├── .github/
 │   └── workflows/
 │       └── ci.yaml         # Build, test, push image, update Helm tag
+├── docs/                   # Additional documentation
+│   └── PHASE_5_GCP_SETUP.md # Detailed GCP setup guide
 ├── IMPLEMENTATION_ROADMAP.md  # Step-by-step build plan with checkboxes
 └── README.md
 ```
@@ -594,6 +627,7 @@ Decisions made during planning, kept here for reference:
 2. **MCP Library**: `fastmcp` v2 (standalone package) instead of the official `mcp` SDK directly. Reason: `fastmcp` v2 provides middleware hooks (`on_list_tools`, `on_call_tool`) essential for scope-based tool filtering. It wraps the official `mcp` SDK underneath.
 3. **Token Issuance**: Generate tokens manually via `scripts/generate_token.py` CLI script. Production would need a token service.
 4. **GKE Standard vs Autopilot**: GKE Standard. Autopilot abstracts away node management, which defeats the educational purpose.
+5. **Infrastructure as Code**: Terraform for GCP resource provisioning. Provides reproducibility, state tracking, and follows enterprise patterns. Existing manually-created resources (APIs, Artifact Registry, Secret Manager) are imported into Terraform state.
 
 ## Open Questions
 
@@ -605,6 +639,8 @@ Decisions made during planning, kept here for reference:
 ## References
 
 - [MCP Protocol Specification](https://modelcontextprotocol.io)
+- [Terraform Documentation](https://developer.hashicorp.com/terraform/docs)
+- [Terraform Google Provider](https://registry.terraform.io/providers/hashicorp/google/latest/docs)
 - [ArgoCD Documentation](https://argo-cd.readthedocs.io)
 - [Helm Documentation](https://helm.sh/docs)
 - [External Secrets Operator](https://external-secrets.io)

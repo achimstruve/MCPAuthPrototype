@@ -78,6 +78,7 @@ A token with only `public:read` scope will only see and be able to call the firs
 | Package Manager | uv + pyproject.toml |
 | Container | Docker (multi-stage build with uv) |
 | Registry | GCP Artifact Registry |
+| **Infrastructure as Code** | **Terraform** (manages GCP resources declaratively) |
 | Orchestration | GKE Standard (3 nodes, 2 MCP server replicas) |
 | Packaging | Helm |
 | CD | ArgoCD |
@@ -170,3 +171,36 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 - **Check `IMPLEMENTATION_ROADMAP.md` for current progress** before starting any work
 - **Update checkboxes in the roadmap** as tasks are completed
 - For infrastructure phases (5, 6, 7, 8): provide step-by-step commands with explanations, don't just execute them
+
+---
+
+## Current Progress (Updated: 2026-02-07)
+
+### Completed
+- **Phases 0-4**: MCP server, auth, tests, Docker - all complete
+- **Phase 5 (partial)**:
+  - GCP APIs enabled (Container, Artifact Registry, Secret Manager)
+  - Artifact Registry created, Docker image pushed (`mcp-auth-prototype:v1`)
+  - Secret Manager secret created (`mcp-jwt-signing-key`) with JWT signing key
+  - **Terraform setup complete** - all GCP infrastructure managed via IaC
+  - **GKE cluster created** (3 nodes, e2-medium, europe-west1-b, Workload Identity enabled)
+  - Service accounts and Workload Identity bindings created
+
+### Next Steps (Resume Here)
+1. **Get cluster credentials**:
+   ```bash
+   gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b
+   ```
+2. **Verify nodes**: `kubectl get nodes` (should show 3 Ready nodes)
+3. **Install External Secrets Operator** (Phase 5e)
+4. **Create Helm chart** (Phase 6)
+
+### Infrastructure State
+- Terraform state is stored locally in `terraform/terraform.tfstate`
+- To see current state: `cd terraform && terraform show`
+- To verify no drift: `cd terraform && terraform plan` (should show no changes)
+
+### Important Files for Next Session
+- `terraform/` - All infrastructure as code
+- `docs/PHASE_5_GCP_SETUP.md` - Detailed GCP setup guide
+- `IMPLEMENTATION_ROADMAP.md` - Checkbox progress tracker

@@ -1,0 +1,26 @@
+# =============================================================================
+# terraform.tfvars.example - Example Variable Values
+# =============================================================================
+#
+# Copy this file to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is automatically loaded by Terraform and is gitignored
+# to prevent accidentally committing sensitive or environment-specific values.
+# =============================================================================
+
+# Required: Your GCP project ID
+project_id = "mcpauthprototype"
+
+# Optional: Override defaults if needed
+# region     = "europe-west1"
+# zone       = "europe-west1-b"
+
+# Optional: Cluster configuration
+# cluster_name = "mcp-prototype"
+# node_count   = 3
+# machine_type = "e2-small"
+# disk_size_gb = 30
+
+# Optional: Environment label
+# environment = "dev"
