@@ -84,6 +84,8 @@ A token with only `public:read` scope will only see and be able to call the firs
 | CD | ArgoCD |
 | Secrets | GCP Secret Manager + External Secrets Operator |
 | CI | GitHub Actions |
+| TLS / HTTPS | nginx-ingress + cert-manager (Let's Encrypt) |
+| Token Issuance | OAuth2 via Google Identity Platform + custom token service |
 
 ## Key Documents
 
@@ -159,7 +161,35 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
                                                  Phase 5 (GCP + GKE) → Phase 6 (Helm)
                                                                               ↓
                                                                      Phase 7 (CI) → Phase 8 (ArgoCD) → Phase 9 (E2E)
+                                                                                                              ↓
+                                                                                              Phase 10 (TLS Ingress/HTTPS)
+                                                                                                              ↓
+                                                                                              Phase 11 (OAuth2 Token Service)
+                                                                                                              ↓
+                                                                                              Phase 12 (Autoscaling & Resilience)
 ```
+
+### What the Coding Agent Does (Phases 10-12)
+- Writes Terraform for static IP (Phase 10)
+- Writes Helm templates for Ingress and ClusterIssuer (Phase 10)
+- Writes the OAuth2 token issuance service (Phase 11)
+- Writes the developer CLI tool (Phase 11)
+- Writes HPA, PDB Helm templates and Locust load test scripts (Phase 12)
+- Updates Terraform for Cluster Autoscaler (Phase 12)
+- Explains TLS, cert-manager, OAuth2 flows, token exchange patterns, autoscaling, and load balancing
+
+### What the Human Does Manually (Phases 10-12)
+- **Installs nginx-ingress controller** (Phase 10): Helm install, static IP binding
+- **Installs cert-manager** (Phase 10): Helm install, pod verification
+- **Configures DNS** (Phase 10): A record pointing to static IP
+- **Verifies HTTPS** (Phase 10): curl, browser, Claude Code connection via HTTPS
+- **Sets up Google Identity Platform** (Phase 11): OAuth2 client, consent screen
+- **Tests the OAuth2 flow** (Phase 11): Browser login, token receipt, Claude Code configuration
+- **Deploys token service to GKE** (Phase 11): Helm upgrade
+- **Installs Metrics Server** (Phase 12): enables `kubectl top` and HPA metrics
+- **Enables Cluster Autoscaler** (Phase 12): `terraform apply` to update node pool
+- **Runs load tests** (Phase 12): Locust against the deployed MCP server, observes autoscaling live
+- **Tunes resources** (Phase 12): adjusts requests/limits based on observed usage
 
 ## Reminders for the Agent
 

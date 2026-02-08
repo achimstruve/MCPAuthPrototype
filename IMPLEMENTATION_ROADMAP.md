@@ -245,6 +245,295 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 ---
 
+## Phase 10: TLS Ingress (HTTPS)
+
+**Goal:** Expose the MCP server externally via HTTPS with automatic TLS certificate management. This is what makes the application production-ready — all traffic between clients and the cluster is encrypted, protecting JWT tokens and confidential document content in transit.
+
+> **This is a key learning phase.** Without TLS, anyone on the network path can read the JWT tokens in the Authorization header and the confidential data returned by tools. TLS termination at the Ingress is the standard production pattern: the Ingress handles HTTPS, and traffic within the cluster stays plain HTTP (which is acceptable because the internal network is trusted).
+
+### Architecture
+
+```
+Client (Claude Code)
+  │
+  │  HTTPS (encrypted)
+  ▼
+┌─────────────────────────────┐
+│  Ingress Controller         │
+│  (nginx-ingress)            │
+│  TLS termination here       │
+│  cert from cert-manager     │
+└─────────────┬───────────────┘
+              │ HTTP (internal, trusted)
+              ▼
+┌─────────────────────────────┐
+│  ClusterIP Service          │
+│  → MCP Server Pods          │
+└─────────────────────────────┘
+```
+
+### 10a: Reserve a Static IP
+- [ ] **[AGENT]** Add `terraform/ingress.tf`: reserve a GCP global static IP address
+- [ ] **[HUMAN]** Run `terraform apply` to create the static IP
+- [ ] **[HUMAN]** Note the IP address from `terraform output` (needed for DNS)
+
+### 10b: DNS Setup
+- [ ] **[HUMAN]** Configure a DNS A record pointing to the static IP (e.g., `mcp.yourdomain.com → <static-ip>`)
+- [ ] **[HUMAN]** Verify DNS resolution: `dig mcp.yourdomain.com` returns the static IP
+
+> **Note:** If you don't have a domain, you can use a free service like [nip.io](https://nip.io) for prototyping (e.g., `mcp.<static-ip>.nip.io` resolves to `<static-ip>` automatically). For a production demo, a real domain is recommended.
+
+### 10c: Install Ingress Controller
+- [ ] **[HUMAN]** Install the nginx-ingress controller via Helm into the cluster
+- [ ] **[HUMAN]** Configure it to use the reserved static IP via the `loadBalancerIP` setting
+- [ ] **[HUMAN]** Verify the ingress controller pod is running and has the external IP assigned
+
+### 10d: Install cert-manager
+- [ ] **[HUMAN]** Install cert-manager via Helm (manages TLS certificates automatically)
+- [ ] **[HUMAN]** Verify cert-manager pods are running: `kubectl get pods -n cert-manager`
+- [ ] **[AGENT]** Create `helm/mcp-server/templates/cluster-issuer.yaml`: ClusterIssuer resource for Let's Encrypt (configures how certificates are obtained via ACME/HTTP-01 challenge)
+
+### 10e: Add Ingress Resource to Helm Chart
+- [ ] **[AGENT]** Create `helm/mcp-server/templates/ingress.yaml`: Ingress resource with TLS configuration, cert-manager annotations, and routing rules to the MCP Service
+- [ ] **[AGENT]** Update `helm/mcp-server/values.yaml`: add ingress configuration (host, tls, annotations)
+- [ ] **[BOTH]** Lint and template-render the updated chart: `helm template mcp-server helm/mcp-server/`
+- [ ] **[HUMAN]** Upgrade the Helm release: `helm upgrade mcp-server helm/mcp-server/ -n mcp-prototype`
+
+### 10f: Verify HTTPS End-to-End
+- [ ] **[HUMAN]** Verify cert-manager issued a certificate: `kubectl get certificate -n mcp-prototype`
+- [ ] **[HUMAN]** Test HTTPS health endpoint: `curl https://mcp.yourdomain.com/health`
+- [ ] **[HUMAN]** Test HTTPS MCP endpoint with a token:
+  ```bash
+  curl -X POST https://mcp.yourdomain.com/mcp \
+    -H "Authorization: Bearer <token>" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize",...}'
+  ```
+- [ ] **[HUMAN]** Connect Claude Code via HTTPS:
+  ```bash
+  claude mcp add --transport http mcp-auth-prototype https://mcp.yourdomain.com/mcp \
+    --header "Authorization: Bearer <token>"
+  ```
+- [ ] **[HUMAN]** Verify HTTP-to-HTTPS redirect works (optional: configure in Ingress annotations)
+
+**Verify before moving on:** HTTPS endpoint is reachable from the internet, TLS certificate is valid (browser shows padlock / curl doesn't complain), Claude Code can connect via HTTPS and use tools, HTTP requests are redirected to HTTPS.
+
+**Key learning:**
+- **TLS termination**: Why terminate at the Ingress (not in the app): simplifies app code, centralizes cert management, standard enterprise pattern
+- **cert-manager**: Automates certificate lifecycle (issuance, renewal, revocation) via Let's Encrypt ACME protocol
+- **Ingress resource**: Layer 7 (HTTP-aware) routing in Kubernetes — host-based and path-based routing, TLS config
+- **nginx-ingress controller**: The most widely used Ingress implementation, translates Ingress resources into nginx config
+- **Static IP**: Why reserve one (DNS records need a stable IP; ephemeral LoadBalancer IPs change on recreation)
+- **Defense in depth**: TLS protects tokens in transit, JWT auth protects at the application layer — both are needed
+
+---
+
+## Phase 11: OAuth2 Token Issuance Service
+
+**Goal:** Replace manual JWT generation with a proper OAuth2-based token issuance flow. Developers authenticate with their identity (e.g., Google account), and the system issues scoped JWT tokens for MCP access. This is how production MCP servers manage developer access at scale.
+
+> **This is a key learning phase.** In our prototype so far, we generate JWTs manually with `scripts/generate_token.py` and hardcode them into the Claude Code config. This doesn't scale: there's no identity verification, no central revocation, no audit trail of who requested what scopes. OAuth2 solves all of this by separating **identity** (who you are) from **authorization** (what you can access).
+
+### Architecture
+
+```
+Developer                    Token Service                 MCP Server
+    │                             │                             │
+    │  1. OAuth2 login            │                             │
+    │  (browser → Google IdP)     │                             │
+    │────────────────────────────>│                             │
+    │                             │                             │
+    │  2. ID token returned       │                             │
+    │<────────────────────────────│                             │
+    │                             │                             │
+    │  3. Exchange ID token       │                             │
+    │     for scoped MCP JWT      │                             │
+    │────────────────────────────>│                             │
+    │                             │  (verify identity,          │
+    │                             │   look up scopes,           │
+    │                             │   mint JWT)                 │
+    │  4. Scoped MCP JWT          │                             │
+    │<────────────────────────────│                             │
+    │                             │                             │
+    │  5. Use JWT with Claude Code                              │
+    │  Authorization: Bearer <jwt>                              │
+    │──────────────────────────────────────────────────────────>│
+    │                             │                             │
+    │  6. Authorized tool response                              │
+    │<──────────────────────────────────────────────────────────│
+```
+
+### 11a: Identity Provider Setup
+- [ ] **[HUMAN]** Set up Google Identity Platform (or Cloud Identity) as the OAuth2 identity provider in GCP
+- [ ] **[HUMAN]** Create an OAuth2 client ID (type: Web application) with appropriate redirect URIs
+- [ ] **[HUMAN]** Configure the OAuth2 consent screen (app name, authorized domains, scopes)
+
+### 11b: Token Issuance Service
+- [ ] **[AGENT]** Create `token-service/` directory with its own `pyproject.toml`
+- [ ] **[AGENT]** Create `token-service/src/main.py`: FastAPI service with two endpoints:
+  - `GET /auth/login` — redirects to Google OAuth2 consent screen
+  - `GET /auth/callback` — handles OAuth2 callback, verifies ID token, looks up user's allowed MCP scopes (from a config file or database), mints a scoped JWT signed with the same key as the MCP server, returns it to the developer
+- [ ] **[AGENT]** Create `token-service/src/config.py`: configuration (OAuth2 client ID/secret, JWT signing key, allowed scopes per user/group)
+- [ ] **[AGENT]** Create `token-service/src/scope_mapping.py`: maps Google identity (email/group) to MCP scopes (e.g., `@company.com` engineers get `public:read`, security team gets both scopes)
+- [ ] **[AGENT]** Create `token-service/Dockerfile`: containerize the token service
+- [ ] **[BOTH]** Test locally: start the token service, complete the OAuth2 flow in a browser, receive a JWT
+
+### 11c: Developer CLI Tool
+- [ ] **[AGENT]** Create `scripts/mcp_token_cli.py`: CLI tool that automates the token flow for developers:
+  - `mcp-token-cli login` — opens browser for OAuth2 flow, receives JWT, prints it
+  - `mcp-token-cli configure` — gets a token and automatically configures Claude Code's MCP settings (updates `~/.config/claude/mcp.json`)
+  - `mcp-token-cli status` — shows current token expiry and scopes
+- [ ] **[BOTH]** Test the CLI end-to-end: login, get token, verify it works against the MCP server
+
+### 11d: Deploy Token Service to GKE
+- [ ] **[AGENT]** Create Helm chart for the token service (or add to existing chart as a sub-chart)
+- [ ] **[AGENT]** Add Ingress rule for the token service (e.g., `https://auth.yourdomain.com`)
+- [ ] **[HUMAN]** Deploy: `helm upgrade` to add the token service alongside the MCP server
+- [ ] **[HUMAN]** Verify the OAuth2 flow works via the deployed HTTPS endpoint
+
+### 11e: Claude Code Integration and E2E Test
+- [ ] **[HUMAN]** Full developer workflow test:
+  1. Run `mcp-token-cli login` → authenticate with Google → receive JWT
+  2. Run `mcp-token-cli configure` → auto-configure Claude Code
+  3. Open Claude Code → verify MCP tools are available and work
+  4. Wait for token expiry → verify Claude Code gets auth errors
+  5. Run `mcp-token-cli login` again → re-configure → verify tools work again
+- [ ] **[AGENT]** Update `README.md` with the production token management workflow
+- [ ] **[AGENT]** Document the security model: identity verification, scope assignment, token lifecycle, audit trail
+
+**Verify before moving on:** Developer can authenticate with their Google identity, receive a scoped JWT, and use it seamlessly with Claude Code. Token expiry and re-issuance flow works smoothly. Audit logs show who requested tokens and with what scopes.
+
+**Key learning:**
+- **OAuth2 authorization code flow**: The standard for web-based authentication — redirect, consent, callback, token exchange
+- **ID tokens vs access tokens**: ID tokens prove identity (who you are), access tokens grant access (what you can do) — our token service bridges the two
+- **Token exchange pattern**: Converting an external identity (Google ID token) into an internal authorization token (scoped MCP JWT)
+- **Scope mapping**: How organizations map identities (users, groups, roles) to fine-grained permissions
+- **Developer experience**: Why CLI tooling matters — reducing friction means developers actually use the secure path instead of sharing long-lived tokens
+- **MCP + OAuth2**: How the MCP ecosystem is evolving toward native OAuth2 support (RFC 9728), and how our pattern aligns with that future
+
+---
+
+## Phase 12: Load Balancing, Autoscaling, and Production Resilience
+
+**Goal:** Make the MCP server handle real-world traffic patterns by adding Horizontal Pod Autoscaling (HPA), GKE Cluster Autoscaler, Pod Disruption Budgets (PDB), and load testing. This is the difference between a "works in a demo" deployment and one that survives production traffic spikes.
+
+> **This is a key learning phase.** So far our cluster has a fixed number of nodes (3) and a fixed number of MCP server replicas (2). In production, traffic is unpredictable — a team of 50 developers might all start Claude Code sessions in the morning, or an AI agent orchestrator might fan out hundreds of concurrent MCP calls. Autoscaling lets Kubernetes react automatically: spinning up more pods when load increases, and more nodes when the cluster runs out of capacity to schedule those pods.
+
+### How Autoscaling Works (Two Layers)
+
+```
+                          Traffic increases
+                                │
+                                ▼
+                ┌───────────────────────────────┐
+                │  Horizontal Pod Autoscaler    │
+                │  (HPA)                        │
+                │                               │
+                │  Watches: CPU/memory/custom   │
+                │  Action: adds more Pod        │
+                │  replicas (e.g., 2 → 8)       │
+                └───────────────┬───────────────┘
+                                │
+                    Pods need nodes to run on
+                                │
+                                ▼
+                ┌───────────────────────────────┐
+                │  Cluster Autoscaler           │
+                │  (GKE node auto-provisioning) │
+                │                               │
+                │  Watches: unschedulable pods  │
+                │  Action: adds more nodes      │
+                │  (e.g., 3 → 6 nodes)          │
+                └───────────────────────────────┘
+                                │
+                                ▼
+                ┌───────────────────────────────┐
+                │  Load Balancer (Ingress)      │
+                │                               │
+                │  Distributes traffic across   │
+                │  all healthy pods equally     │
+                └───────────────────────────────┘
+```
+
+**Key insight:** HPA scales *pods* (your application), Cluster Autoscaler scales *nodes* (the infrastructure). They work together: HPA says "I need 8 replicas", Cluster Autoscaler says "I need more nodes to fit 8 replicas".
+
+### 12a: Horizontal Pod Autoscaler (HPA)
+- [ ] **[HUMAN]** Install the Metrics Server in the cluster (provides CPU/memory metrics that HPA reads):
+  ```bash
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  ```
+- [ ] **[HUMAN]** Verify metrics are available: `kubectl top nodes` and `kubectl top pods -n mcp-prototype`
+- [ ] **[AGENT]** Create `helm/mcp-server/templates/hpa.yaml`: HorizontalPodAutoscaler resource that:
+  - Scales between 2 (min) and 10 (max) replicas
+  - Targets 70% average CPU utilization
+  - Targets 80% average memory utilization
+  - Uses sensible scale-up/scale-down behavior (scale up fast, scale down slowly to avoid flapping)
+- [ ] **[AGENT]** Update `helm/mcp-server/values.yaml`: add autoscaling configuration block (enabled, min/max replicas, target CPU/memory percentages)
+- [ ] **[BOTH]** Deploy and verify: `kubectl get hpa -n mcp-prototype` shows the HPA with current metrics
+
+### 12b: Pod Disruption Budget (PDB)
+- [ ] **[AGENT]** Create `helm/mcp-server/templates/pdb.yaml`: PodDisruptionBudget that guarantees at least 1 pod is always available during voluntary disruptions (node upgrades, cluster scaling down, `kubectl drain`)
+- [ ] **[AGENT]** Update `helm/mcp-server/values.yaml`: add PDB configuration (minAvailable or maxUnavailable)
+- [ ] **[BOTH]** Deploy and verify: `kubectl get pdb -n mcp-prototype`
+
+### 12c: GKE Cluster Autoscaler
+- [ ] **[AGENT]** Update `terraform/gke.tf`: enable Cluster Autoscaler on the node pool with:
+  - Minimum nodes: 2 (always keep at least 2 for availability)
+  - Maximum nodes: 6 (cost ceiling for the prototype)
+  - Auto-provisioning profile (resource limits, machine types)
+- [ ] **[HUMAN]** Run `terraform apply` to update the cluster configuration
+- [ ] **[HUMAN]** Verify autoscaler is active: `gcloud container clusters describe mcp-prototype --zone europe-west1-b | grep -A5 autoscaling`
+
+### 12d: Load Balancer Deep Dive
+- [ ] **[HUMAN]** Understand the load balancing layers by inspecting the current setup:
+  - **L4 (TCP)**: The GCP Network Load Balancer in front of the nginx-ingress controller — distributes TCP connections across ingress controller pods
+  - **L7 (HTTP)**: nginx-ingress internally — routes HTTP requests to MCP server pods, respects readiness probes (unhealthy pods get no traffic)
+  - **kube-proxy**: The Kubernetes networking layer — implements Service load balancing via iptables/IPVS rules
+- [ ] **[HUMAN]** Inspect the load balancer: `kubectl get svc -n ingress-nginx` (note the EXTERNAL-IP and port mappings)
+- [ ] **[HUMAN]** Verify traffic distribution: make multiple requests and check which pod handles each (visible in structured JSON logs via `kubectl logs`)
+- [ ] **[AGENT]** Add session affinity configuration to `helm/mcp-server/values.yaml` (optional: explain when sticky sessions matter vs stateless round-robin)
+
+### 12e: Load Testing
+- [ ] **[AGENT]** Create `load-test/locustfile.py`: load test script using [Locust](https://locust.io) that:
+  - Simulates multiple concurrent MCP clients
+  - Sends `initialize`, `tools/list`, and `tools/call` requests with valid JWTs
+  - Ramps up from 10 to 100 concurrent users over 5 minutes
+  - Reports response times, error rates, and throughput
+- [ ] **[AGENT]** Create `load-test/README.md`: instructions for running the load test
+- [ ] **[HUMAN]** Run the load test against the deployed MCP server:
+  ```bash
+  pip install locust
+  locust -f load-test/locustfile.py --host https://mcp.yourdomain.com
+  ```
+- [ ] **[HUMAN]** Observe autoscaling in real-time during the load test:
+  - Watch pod count increase: `kubectl get pods -n mcp-prototype -w`
+  - Watch HPA react: `kubectl get hpa -n mcp-prototype -w`
+  - Watch node count increase (if load is high enough): `kubectl get nodes -w`
+- [ ] **[HUMAN]** After the load test ends, observe scale-down:
+  - HPA gradually reduces pod count (cooldown period)
+  - Cluster Autoscaler removes underutilized nodes (10-minute default delay)
+
+### 12f: Resource Tuning
+- [ ] **[HUMAN]** Analyze load test results to tune resource requests/limits:
+  - Check actual CPU/memory usage: `kubectl top pods -n mcp-prototype`
+  - Compare against current requests/limits in `values.yaml`
+  - Adjust if pods are being OOM-killed (limits too low) or wasting resources (requests too high)
+- [ ] **[AGENT]** Update `helm/mcp-server/values.yaml` with tuned resource values based on load test observations
+- [ ] **[BOTH]** Re-run load test to verify improved behavior
+
+**Verify before moving on:** HPA scales pods up under load and back down when load drops. Cluster Autoscaler adds nodes when pods can't be scheduled and removes them when underutilized. PDB prevents total outage during node drains. Load test shows stable response times under expected traffic levels. All of this is observable in real-time.
+
+**Key learning:**
+- **HPA (Horizontal Pod Autoscaler)**: Scales pods based on metrics — the primary mechanism for handling traffic spikes. Understand the difference between scaling on CPU vs memory vs custom metrics, and why scale-down is intentionally slow (to prevent flapping)
+- **Cluster Autoscaler**: Scales the underlying infrastructure (nodes). Triggered when pods are "Pending" because no node has enough resources. Understand the delay (pods wait while nodes boot) and why min/max limits matter (cost control)
+- **Pod Disruption Budget**: Guarantees availability during voluntary disruptions. Without a PDB, a `kubectl drain` or cluster upgrade could terminate all pods simultaneously. This is a production must-have
+- **Load balancing layers**: L4 (TCP — GCP LB), L7 (HTTP — nginx-ingress), kube-proxy (Service). Understanding which layer does what helps debug connectivity and distribution issues
+- **Resource requests vs limits**: Requests = "what I need to be scheduled" (affects which node the pod lands on). Limits = "the maximum I'm allowed to use" (pod gets killed if it exceeds memory limit). Getting these right is critical for autoscaling to work properly
+- **Load testing**: The only way to validate autoscaling config. Without simulating real traffic, you're guessing. Locust is a popular Python-based load testing tool
+- **Cost awareness**: Autoscaling creates resources that cost money. Max limits on HPA and Cluster Autoscaler are your cost ceiling. In production, pair with budget alerts
+
+---
+
 ## Summary
 
 | Phase | Description | Primary Actor | Key Learning Areas |
@@ -259,3 +548,6 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 | 7 | GitHub Actions CI | Agent writes, **Human configures** | **CI/CD, Workload Identity Federation** |
 | 8 | ArgoCD | Agent writes, **Human installs** | **GitOps, auto-sync, rolling updates** |
 | 9 | E2E verification | Both | Full pipeline validation |
+| 10 | TLS Ingress (HTTPS) | Agent writes, **Human deploys** | **Ingress, cert-manager, TLS termination, static IP** |
+| 11 | OAuth2 Token Service | Agent writes, **Human configures** | **OAuth2, token exchange, CLI tooling, DX** |
+| 12 | Autoscaling & Resilience | Agent writes, **Human applies** | **HPA, Cluster Autoscaler, PDB, load testing, LB** |
