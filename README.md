@@ -192,6 +192,19 @@ mcp-auth-prototype/
 │   ├── conftest.py        # Shared test fixtures (token factories)
 │   ├── test_auth.py       # Unit tests for JWT validation (16 tests)
 │   └── test_tools.py      # Integration tests for tool authorization (6 tests)
+├── helm/
+│   └── mcp-server/            # Helm chart for Kubernetes deployment
+│       ├── Chart.yaml         # Chart metadata (name, version)
+│       ├── values.yaml        # Default configuration values
+│       ├── values-dev.yaml    # Dev environment overrides
+│       └── templates/
+│           ├── _helpers.tpl       # Reusable Go template helpers
+│           ├── deployment.yaml    # Deployment (2 replicas, probes, env vars)
+│           ├── service.yaml       # ClusterIP Service on port 8080
+│           ├── configmap.yaml     # Document content (public.md, confidential.md)
+│           ├── serviceaccount.yaml # K8s ServiceAccounts with Workload Identity
+│           ├── secretstore.yaml   # ESO connection to GCP Secret Manager
+│           └── externalsecret.yaml # Syncs JWT key from GCP to K8s Secret
 ├── terraform/             # Infrastructure as Code
 │   ├── main.tf            # Provider and backend configuration
 │   ├── variables.tf       # Input variables
@@ -203,6 +216,29 @@ mcp-auth-prototype/
 ├── pyproject.toml         # Dependencies and tool configuration
 └── uv.lock                # Locked dependency versions
 ```
+
+## Design Decisions
+
+### Document Storage: ConfigMap (Prototype) vs Production Alternatives
+
+In this prototype, document content (`public.md`, `confidential.md`) is inlined directly in a Kubernetes ConfigMap within the Helm chart. This is appropriate here because:
+
+- We have only 2 small, static documents (~1KB total)
+- It keeps the Helm chart self-contained and easy to understand
+- Helm's `.Files.Get` function can't read files outside the chart directory
+
+**This approach does NOT scale.** ConfigMaps are limited to 1MB, document changes require a full Helm upgrade (which triggers a pod rolling update), and there's no versioning or independent lifecycle management.
+
+**Production alternatives for document-heavy systems:**
+
+| Pattern | When to Use | How It Works |
+|---------|-------------|--------------|
+| **Object Storage (GCS/S3)** | Most common. Independent document lifecycle, many documents | App fetches from a cloud bucket at runtime via Workload Identity. Supports versioning, CDN, fine-grained IAM. |
+| **Database (PostgreSQL/Firestore)** | Documents need metadata, search, relationships | App queries a database per request. Full CRUD, indexing, transactions. |
+| **Git repo + sidecar** | GitOps-heavy orgs, docs-as-code | A sidecar/init container clones a separate docs repo. Version history from Git, PRs for review. |
+| **Content API microservice** | Large-scale, many consumers | Dedicated service manages documents. MCP server becomes a thin orchestration layer. |
+
+The key principle: **decouple document lifecycle from application lifecycle.** The MCP server should be deployable independently from content updates.
 
 ## Configuration
 
@@ -244,8 +280,8 @@ See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for the full build pl
 - [x] Phase 2: Authentication and authorization
 - [x] Phase 3: Tests
 - [x] Phase 4: Dockerize
-- [x] Phase 5: GCP Infrastructure + Terraform + GKE *(GKE cluster created, ESO installation pending)*
-- [ ] Phase 6: Helm chart
+- [x] Phase 5: GCP Infrastructure + Terraform + GKE
+- [x] Phase 6: Helm chart *(templates written, deployment pending)*
 - [ ] Phase 7: GitHub Actions CI pipeline
 - [ ] Phase 8: ArgoCD
 - [ ] Phase 9: End-to-end verification

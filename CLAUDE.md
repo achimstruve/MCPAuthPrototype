@@ -204,26 +204,27 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 
 ---
 
-## Current Progress (Updated: 2026-02-07)
+## Current Progress (Updated: 2026-02-08)
 
 ### Completed
 - **Phases 0-4**: MCP server, auth, tests, Docker - all complete
-- **Phase 5 (partial)**:
-  - GCP APIs enabled (Container, Artifact Registry, Secret Manager)
-  - Artifact Registry created, Docker image pushed (`mcp-auth-prototype:v1`)
-  - Secret Manager secret created (`mcp-jwt-signing-key`) with JWT signing key
-  - **Terraform setup complete** - all GCP infrastructure managed via IaC
-  - **GKE cluster created** (3 nodes, e2-medium, europe-west1-b, Workload Identity enabled)
-  - Service accounts and Workload Identity bindings created
+- **Phase 5**: GCP infrastructure fully provisioned
+  - GCP APIs, Artifact Registry (`mcp-auth-prototype:v1`), Secret Manager (`mcp-jwt-signing-key`)
+  - Terraform IaC managing all GCP resources
+  - GKE cluster running (3 nodes, e2-medium, europe-west1-b, Workload Identity enabled)
+  - Service accounts, Workload Identity bindings, cluster credentials configured
+  - External Secrets Operator installed and healthy
+- **Phase 6 (partial)**: Helm chart templates written
+  - All 10 files created: Chart.yaml, values.yaml, values-dev.yaml, _helpers.tpl, deployment, service, configmap, serviceaccount, secretstore, externalsecret
+  - Chart lints clean and template rendering verified
+  - Awaiting `helm install` by the human
 
 ### Next Steps (Resume Here)
-1. **Get cluster credentials**:
-   ```bash
-   gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b
-   ```
-2. **Verify nodes**: `kubectl get nodes` (should show 3 Ready nodes)
-3. **Install External Secrets Operator** (Phase 5e)
-4. **Create Helm chart** (Phase 6)
+1. **Create namespace**: `kubectl create namespace mcp-prototype`
+2. **Install Helm chart**: `helm install mcp-server helm/mcp-server/ -n mcp-prototype`
+   - Note: If `eso-service-account` already exists, delete it first or use `--set serviceAccount.eso.create=false`
+3. **Verify deployment**: pods running, service exists, ExternalSecret synced, health probes passing
+4. **Port-forward and test**: `kubectl port-forward svc/mcp-server -n mcp-prototype 8080:8080`
 
 ### Infrastructure State
 - Terraform state is stored locally in `terraform/terraform.tfstate`
@@ -231,6 +232,7 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 - To verify no drift: `cd terraform && terraform plan` (should show no changes)
 
 ### Important Files for Next Session
+- `helm/mcp-server/` - Complete Helm chart (10 files with educational comments)
 - `terraform/` - All infrastructure as code
 - `docs/PHASE_5_GCP_SETUP.md` - Detailed GCP setup guide
 - `IMPLEMENTATION_ROADMAP.md` - Checkbox progress tracker

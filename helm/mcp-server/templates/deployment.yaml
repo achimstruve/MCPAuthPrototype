@@ -1,0 +1,239 @@
+# =============================================================================
+# deployment.yaml - MCP Server Deployment
+# =============================================================================
+#
+# This is the main workload definition. A Deployment is the most common way
+# to run stateless applications in Kubernetes.
+#
+# The Kubernetes resource hierarchy:
+#
+#   Deployment (what you define)
+#     └── manages → ReplicaSet (auto-created by the Deployment controller)
+#         └── manages → Pods (the actual containers)
+#
+# Why not create Pods directly?
+# - Pods are ephemeral: if a pod dies, nothing recreates it
+# - A ReplicaSet ensures N replicas are always running
+# - A Deployment adds rolling updates: when you change the image tag,
+#   it creates a NEW ReplicaSet, gradually shifts traffic, and scales
+#   down the old one. Zero-downtime deployments!
+#
+# What happens during a rolling update (e.g., image v1 → v2):
+# 1. Deployment creates a new ReplicaSet with the v2 image
+# 2. New ReplicaSet scales up (1 pod with v2 starts)
+# 3. New pod passes readiness probe → receives traffic
+# 4. Old ReplicaSet scales down by 1 (1 pod with v1 terminates)
+# 5. Repeat until all pods are v2
+# 6. Result: At least 1 pod was always serving traffic (zero downtime)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-server.fullname" . }}
+  labels:
+    {{- include "mcp-server.labels" . | nindent 4 }}
+spec:
+  # Number of pod replicas to maintain.
+  # The Deployment controller constantly reconciles: if a pod crashes,
+  # it creates a replacement to maintain this count.
+  replicas: {{ .Values.replicaCount }}
+
+  # Selector: tells the Deployment which pods it owns.
+  # MUST match the labels in spec.template.metadata.labels below.
+  # CRITICAL: These labels are IMMUTABLE after creation. If you need to
+  # change them, you must delete and recreate the Deployment.
+  selector:
+    matchLabels:
+      {{- include "mcp-server.selectorLabels" . | nindent 6 }}
+
+  # -------------------------------------------------------------------------
+  # Pod Template
+  # -------------------------------------------------------------------------
+  # This is the blueprint for every pod the Deployment creates.
+  # Think of it as a "cookie cutter" — every replica is stamped from this.
+  template:
+    metadata:
+      labels:
+        # Pod labels MUST include the selector labels (otherwise the
+        # Deployment can't find its own pods).
+        {{- include "mcp-server.selectorLabels" . | nindent 8 }}
+      annotations:
+        # ConfigMap change detection: this annotation contains a SHA256 hash
+        # of the ConfigMap template. When document content changes, this hash
+        # changes, which makes the pod spec different, which triggers a
+        # rolling update.
+        #
+        # Without this, Kubernetes would NOT restart pods when ConfigMap
+        # content changes — it would only update the mounted files eventually,
+        # but our app reads them at request time so this is actually fine for
+        # our use case. We include this pattern because it's a widely-used
+        # best practice that's important to understand.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+
+    spec:
+      # -----------------------------------------------------------------------
+      # Service Account
+      # -----------------------------------------------------------------------
+      # Run pods as the mcp-server ServiceAccount (NOT the eso-service-account).
+      # Each SA has different permissions:
+      # - mcp-server: Identity for the app pods (currently no GCP permissions)
+      # - eso-service-account: Identity for ESO to access Secret Manager
+      serviceAccountName: {{ .Values.serviceAccount.mcp.name }}
+
+      # -----------------------------------------------------------------------
+      # Pod Anti-Affinity
+      # -----------------------------------------------------------------------
+      # Tells the scheduler to TRY to place replicas on different nodes.
+      # This improves availability: if one node goes down, the replica on
+      # another node keeps serving traffic.
+      {{- if .Values.podAntiAffinity.enabled }}
+      affinity:
+        podAntiAffinity:
+          # "preferred" = soft constraint (try, but don't fail if impossible)
+          # vs "required" = hard constraint (fail scheduling if can't satisfy)
+          #
+          # We use "preferred" because our 3-node cluster has limited space.
+          # With system pods (kube-system, argocd, external-secrets), nodes
+          # might not have room for a strict anti-affinity requirement.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100  # Highest priority (range: 1-100)
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - {{ include "mcp-server.name" . }}
+                # topologyKey defines what "different" means:
+                # - kubernetes.io/hostname = different nodes
+                # - topology.kubernetes.io/zone = different availability zones
+                # We use hostname to spread across our 3 nodes.
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+
+      # -----------------------------------------------------------------------
+      # Container Definition
+      # -----------------------------------------------------------------------
+      containers:
+        - name: mcp-server
+          # Image is constructed from values: repository:tag
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          # Named port: referenced by the Service's targetPort field.
+          # Using a name ("http") instead of a number (8080) decouples
+          # the Service from the container's port number.
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # ---------------------------------------------------------------------
+          # Environment Variables
+          # ---------------------------------------------------------------------
+          env:
+            # Non-secret environment variables from values.yaml
+            # The range loop iterates over the env map and creates one
+            # env var per entry. The "quote" function ensures values are
+            # always treated as strings (even numbers like "8080").
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+
+            # Secret environment variable: JWT signing key
+            # This is injected from the K8s Secret created by ESO.
+            # The secretKeyRef tells Kubernetes to read the value from:
+            #   Secret named "mcp-jwt-secret", key "jwt-signing-key"
+            #
+            # The app code (src/config.py) reads this as MCP_JWT_SECRET_KEY
+            # via pydantic-settings. The app has NO IDEA the value came from
+            # GCP Secret Manager — it just sees an environment variable.
+            # This decoupling is intentional: the app is cloud-agnostic.
+            {{- if .Values.externalSecret.enabled }}
+            - name: MCP_JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecret.secretName }}
+                  key: {{ .Values.externalSecret.secretKey }}
+            {{- end }}
+
+          # ---------------------------------------------------------------------
+          # Volume Mounts
+          # ---------------------------------------------------------------------
+          # Mount the ConfigMap as files inside the container.
+          # Each key in the ConfigMap (public.md, confidential.md) becomes
+          # a file at the mountPath.
+          volumeMounts:
+            - name: documents
+              mountPath: /app/documents
+              # readOnly: security best practice. The app only reads documents,
+              # never writes them. This prevents accidental or malicious writes.
+              readOnly: true
+
+          # ---------------------------------------------------------------------
+          # Liveness Probe
+          # ---------------------------------------------------------------------
+          # "Is the process alive and responsive?"
+          # If this fails (failureThreshold consecutive failures), Kubernetes
+          # RESTARTS the container. Use for detecting deadlocks or hangs.
+          #
+          # Our /health endpoint always returns 200 if the server process is
+          # running. It's intentionally simple — a complex health check could
+          # cause false positives and unnecessary restarts.
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+
+          # ---------------------------------------------------------------------
+          # Readiness Probe
+          # ---------------------------------------------------------------------
+          # "Can this pod serve traffic right now?"
+          # If this fails, the pod is removed from Service endpoints (no
+          # traffic routed to it), but the pod is NOT restarted.
+          #
+          # Our /ready endpoint checks that both document files exist.
+          # If the ConfigMap volume isn't mounted yet (during startup), this
+          # returns 503, and the pod won't receive traffic until it's ready.
+          #
+          # Key difference from liveness:
+          # - Liveness failure → restart (nuclear option)
+          # - Readiness failure → stop traffic (gentle, reversible)
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+
+          # ---------------------------------------------------------------------
+          # Resource Requests and Limits
+          # ---------------------------------------------------------------------
+          # requests = "I need at least this much" (scheduling guarantee)
+          # limits = "I must never exceed this" (enforcement ceiling)
+          #
+          # CPU exceeded: pod is throttled (runs slower, NOT killed)
+          # Memory exceeded: pod is OOM-killed and restarted
+          #
+          # The toYaml function converts the Go object from values.yaml into
+          # properly formatted YAML. nindent 12 adds 12 spaces of indentation.
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      # -----------------------------------------------------------------------
+      # Volumes
+      # -----------------------------------------------------------------------
+      # Define the volumes that containers can mount.
+      # Here we create a volume from our ConfigMap.
+      volumes:
+        - name: documents
+          configMap:
+            # Reference the ConfigMap by name. Kubernetes projects each
+            # data key as a file in the mounted directory.
+            name: {{ include "mcp-server.fullname" . }}-documents

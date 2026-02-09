@@ -138,12 +138,12 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
   - `terraform import google_secret_manager_secret.jwt_signing_key ...`
 - [x] **[HUMAN]** Run `terraform plan` to verify no changes needed for imported resources
 - [x] **[HUMAN]** Run `terraform apply` to create GKE cluster and IAM resources
-- [ ] **[HUMAN]** Get cluster credentials: `gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b`
-- [ ] **[HUMAN]** Verify: `kubectl get nodes` shows 3 nodes in Ready state
+- [x] **[HUMAN]** Get cluster credentials: `gcloud container clusters get-credentials mcp-prototype --zone europe-west1-b`
+- [x] **[HUMAN]** Verify: `kubectl get nodes` shows 3 nodes in Ready state
 
 ### 5e: External Secrets Operator (Helm)
-- [ ] **[HUMAN]** Add ESO Helm repo and install ESO into the cluster
-- [ ] **[HUMAN]** Verify ESO pods are running: `kubectl get pods -n external-secrets`
+- [x] **[HUMAN]** Add ESO Helm repo and install ESO into the cluster
+- [x] **[HUMAN]** Verify ESO pods are running: `kubectl get pods -n external-secrets`
 
 **Verify before moving on:** 3 nodes running, image in Artifact Registry, secret in Secret Manager, ESO installed and healthy, all resources tracked in Terraform state.
 
@@ -162,18 +162,18 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 > **This is a key learning phase.** The agent writes the Helm templates with detailed comments. The human reviews each template to understand the Kubernetes resources, then runs `helm install` manually.
 
-- [ ] **[AGENT]** Create `helm/mcp-server/Chart.yaml`: chart metadata (apiVersion v2, name, version, appVersion)
-- [ ] **[AGENT]** Create `helm/mcp-server/values.yaml`: default values (replicaCount: 2, image, service port 8080, resource requests/limits, probe config, externalSecret config)
-- [ ] **[AGENT]** Create `helm/mcp-server/values-dev.yaml`: dev environment overrides
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/_helpers.tpl`: common template helpers (labels, names)
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/deployment.yaml`: Deployment with 2 replicas, container config, probes, env vars from Secret, resource limits
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/service.yaml`: ClusterIP Service on port 8080
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/configmap.yaml`: document content mounted into pods
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/serviceaccount.yaml`: dedicated ServiceAccount with Workload Identity annotation
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/externalsecret.yaml`: ExternalSecret resource to sync JWT key from GCP Secret Manager
-- [ ] **[AGENT]** Create `helm/mcp-server/templates/secretstore.yaml`: SecretStore connecting ESO to GCP Secret Manager
-- [ ] **[BOTH]** Lint chart: `helm lint helm/mcp-server/`
-- [ ] **[BOTH]** Render templates locally: `helm template mcp-server helm/mcp-server/` and review output
+- [x] **[AGENT]** Create `helm/mcp-server/Chart.yaml`: chart metadata (apiVersion v2, name, version, appVersion)
+- [x] **[AGENT]** Create `helm/mcp-server/values.yaml`: default values (replicaCount: 2, image, service port 8080, resource requests/limits, probe config, externalSecret config)
+- [x] **[AGENT]** Create `helm/mcp-server/values-dev.yaml`: dev environment overrides
+- [x] **[AGENT]** Create `helm/mcp-server/templates/_helpers.tpl`: common template helpers (labels, names)
+- [x] **[AGENT]** Create `helm/mcp-server/templates/deployment.yaml`: Deployment with 2 replicas, container config, probes, env vars from Secret, resource limits
+- [x] **[AGENT]** Create `helm/mcp-server/templates/service.yaml`: ClusterIP Service on port 8080
+- [x] **[AGENT]** Create `helm/mcp-server/templates/configmap.yaml`: document content mounted into pods
+- [x] **[AGENT]** Create `helm/mcp-server/templates/serviceaccount.yaml`: dedicated ServiceAccount with Workload Identity annotation
+- [x] **[AGENT]** Create `helm/mcp-server/templates/externalsecret.yaml`: ExternalSecret resource to sync JWT key from GCP Secret Manager
+- [x] **[AGENT]** Create `helm/mcp-server/templates/secretstore.yaml`: SecretStore connecting ESO to GCP Secret Manager
+- [x] **[BOTH]** Lint chart: `helm lint helm/mcp-server/`
+- [x] **[BOTH]** Render templates locally: `helm template mcp-server helm/mcp-server/` and review output
 - [ ] **[HUMAN]** Create namespace: `kubectl create namespace mcp-prototype`
 - [ ] **[HUMAN]** Install chart: `helm install mcp-server helm/mcp-server/ -n mcp-prototype`
 - [ ] **[HUMAN]** Verify pods are running across nodes: `kubectl get pods -n mcp-prototype -o wide`

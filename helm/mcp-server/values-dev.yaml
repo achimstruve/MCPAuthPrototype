@@ -1,0 +1,47 @@
+# =============================================================================
+# values-dev.yaml - Development Environment Overrides
+# =============================================================================
+#
+# This file overrides specific values from values.yaml for a dev environment.
+# It's applied using the -f flag:
+#
+#   helm install mcp-server ./mcp-server -f values-dev.yaml -n mcp-prototype
+#
+# How value file layering works:
+# 1. values.yaml is always loaded first (defaults)
+# 2. values-dev.yaml is merged ON TOP (overrides matching keys)
+# 3. --set flags override everything
+#
+# This file is intentionally SPARSE — only override what differs from
+# production defaults. Everything else inherits from values.yaml.
+#
+# Common environments:
+# - values.yaml        → production defaults (2 replicas, info logging)
+# - values-dev.yaml    → development (1 replica, debug logging, lower resources)
+# - values-staging.yaml → staging (2 replicas, info logging, staging image tag)
+#
+# ArgoCD can be configured to use different values files per environment.
+# =============================================================================
+
+# Single replica in dev — we don't need HA for local testing, and it
+# saves cluster resources.
+replicaCount: 1
+
+# Debug logging for development — shows detailed auth decisions, request
+# details, and internal state. Too verbose for production.
+env:
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "8080"
+  MCP_LOG_LEVEL: "debug"
+  MCP_JWT_ALGORITHM: "HS256"
+  MCP_DOCUMENTS_DIR: "/app/documents"
+
+# Lower resource allocation — dev workloads are lighter and we want to
+# leave room on the cluster for other dev services.
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "100m"

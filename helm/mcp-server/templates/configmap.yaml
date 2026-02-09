@@ -1,0 +1,106 @@
+# =============================================================================
+# configmap.yaml - Document Content Storage
+# =============================================================================
+#
+# A ConfigMap stores non-sensitive configuration data as key-value pairs.
+# In our case, it holds the document files (public.md and confidential.md)
+# that the MCP server tools return when called.
+#
+# ConfigMap vs Secret:
+# - ConfigMap: Non-sensitive data (config files, documents, settings)
+#   Stored in plain text in etcd. Visible to anyone with namespace access.
+# - Secret: Sensitive data (passwords, tokens, keys)
+#   Base64-encoded in etcd (not encrypted by default, but can be with
+#   encryption-at-rest). Access can be restricted via RBAC.
+#
+# Our documents are business content, not cryptographic secrets, so a
+# ConfigMap is appropriate. The confidential document IS sensitive business
+# data, but access control is handled at the MCP layer (JWT scopes), not
+# at the Kubernetes layer. Furthermore this is a demonstration project.
+#
+# How this gets into the pod:
+# 1. This ConfigMap is created with two data keys (public.md, confidential.md)
+# 2. The Deployment mounts this ConfigMap as a volume
+# 3. Each key becomes a file at the mount path: /app/documents/public.md
+# 4. The MCP server reads these files when tools are called
+#
+# Size limit: ConfigMaps are limited to 1MB. Our documents are ~1KB total,
+# so this is not a concern. For larger data, consider a persistent volume.
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Name includes the release fullname to avoid conflicts if multiple
+  # installations exist in the same namespace.
+  name: {{ include "mcp-server.fullname" . }}-documents
+  labels:
+    {{- include "mcp-server.labels" . | nindent 4 }}
+data:
+  # The "|" (pipe) is a YAML block scalar indicator. It preserves newlines
+  # in the text that follows. Each key becomes a file when mounted as a volume.
+
+  public.md: |
+    # Acme Corp - Public Company Information
+
+    ## About Us
+
+    Acme Corp is a technology company founded in 2020, headquartered in Berlin, Germany.
+    We specialize in building developer tools for cloud-native infrastructure.
+
+    ## Products
+
+    - **Acme Deploy**: Automated deployment platform for Kubernetes workloads
+    - **Acme Monitor**: Real-time observability suite with metrics, logs, and traces
+    - **Acme Secure**: Zero-trust security framework for microservices
+
+    ## Key Facts
+
+    - **Employees**: 150+
+    - **Customers**: 500+ enterprise clients
+    - **Funding**: Series B ($45M raised)
+    - **Markets**: Europe, North America
+
+    ## Contact
+
+    - Website: https://acme-corp.example.com
+    - Email: info@acme-corp.example.com
+    - GitHub: https://github.com/acme-corp-example
+
+  confidential.md: |
+    # Acme Corp - Confidential Strategy Document
+
+    **Classification: CONFIDENTIAL - Internal Use Only**
+
+    ## Q3 2026 Strategic Priorities
+
+    ### 1. Product Expansion
+
+    - Launch Acme AI Assistant (internal codename: "Project Atlas")
+    - Target release: September 2026
+    - Budget allocation: $5M for R&D, $2M for go-to-market
+    - Key differentiator: Native MCP integration for enterprise AI agents
+
+    ### 2. Market Expansion
+
+    - Enter APAC market starting with Japan and Singapore
+    - Establish local partnerships with NTT Data and GovTech Singapore
+    - Hire regional sales team (8-10 people) by Q4 2026
+
+    ### 3. Acquisition Targets
+
+    - Evaluating 3 potential acquisitions in the observability space
+    - Combined deal value: $15-25M range
+    - Due diligence in progress for Target Alpha (AI-powered log analysis)
+
+    ### 4. Financial Projections
+
+    - Projected ARR: $28M by end of 2026 (up from $18M)
+    - Target gross margin: 78%
+    - Path to profitability: Q2 2027
+
+    ## Competitive Intelligence
+
+    - Competitor X is rumored to be preparing an IPO in Q4 2026
+    - Competitor Y lost their VP of Engineering; potential recruitment opportunity
+    - Market analysis suggests 40% YoY growth in the developer tools segment

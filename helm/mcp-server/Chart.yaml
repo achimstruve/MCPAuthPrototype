@@ -1,0 +1,57 @@
+# =============================================================================
+# Chart.yaml - Helm Chart Metadata
+# =============================================================================
+#
+# This file is the "identity card" of the Helm chart. Helm reads it to
+# understand what this chart is, what version it is, and what application
+# it deploys.
+#
+# Every Helm chart MUST have a Chart.yaml at its root. Without it, Helm
+# doesn't recognize the directory as a chart.
+#
+# Key concepts:
+# - A "chart" is a package of Kubernetes manifests (like a .deb or .rpm
+#   for Kubernetes). It's a template that can be installed multiple times
+#   with different configurations.
+# - A "release" is a specific installation of a chart. When you run
+#   `helm install my-release ./mcp-server`, "my-release" is the release name.
+# =============================================================================
+
+# apiVersion v2 is the Helm 3 format. Helm 2 used v1.
+# Helm 3 removed the server-side component (Tiller) and is the current standard.
+apiVersion: v2
+
+# Chart name. Used in template helpers to generate Kubernetes resource names.
+# Convention: lowercase, hyphen-separated (matches Kubernetes naming rules).
+name: mcp-server
+
+# Human-readable description. Shows up in `helm search` results and
+# artifact repositories (like Artifact Hub).
+description: >-
+  Secure MCP server with JWT authentication and scope-based tool access.
+  Deploys to GKE with External Secrets Operator integration for secret
+  management via GCP Secret Manager.
+
+# Chart type: "application" or "library".
+# - application: Deploys Kubernetes resources (what we want)
+# - library: Provides reusable templates for other charts (no resources of its own)
+type: application
+
+# Chart version. Follows Semantic Versioning (semver.org):
+# - MAJOR: incompatible changes to values.yaml or templates
+# - MINOR: new features (new templates, new values) that are backwards-compatible
+# - PATCH: bug fixes
+#
+# This version tracks the CHART (packaging/templates), NOT the application.
+# Increment this whenever you change any file in the chart.
+version: 0.1.0
+
+# Application version. This is the version of the SOFTWARE being deployed.
+# It maps to the Docker image tag. When CI builds a new image (e.g., with
+# a git SHA tag), this value gets updated.
+#
+# The distinction matters:
+# - Chart version 0.1.0 could deploy app version v1, v2, or v3
+# - You might update the chart (version 0.2.0) without changing the app
+# - ArgoCD and `helm list` show both versions for clarity
+appVersion: "v1"

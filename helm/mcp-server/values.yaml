@@ -1,0 +1,260 @@
+# =============================================================================
+# values.yaml - Default Configuration for the MCP Server Helm Chart
+# =============================================================================
+#
+# This file defines EVERY configurable aspect of the deployment. Templates
+# reference these values using {{ .Values.xxx }} syntax.
+#
+# How values work in Helm:
+# 1. This file provides defaults
+# 2. You can override any value at install time:
+#    - Via file: helm install -f values-dev.yaml ...
+#    - Via CLI:  helm install --set replicaCount=3 ...
+# 3. Overrides are merged on top of defaults (not replacing the whole file)
+# 4. CLI --set takes highest priority, then -f files, then this default
+#
+# Convention: values are grouped by Kubernetes resource or concern.
+# =============================================================================
+
+
+# =============================================================================
+# Replica Configuration
+# =============================================================================
+# How many copies of the MCP server pod to run.
+#
+# Why 2 replicas?
+# - Demonstrates multi-replica scheduling (pods spread across nodes)
+# - Provides basic availability: if one pod crashes, the other serves traffic
+# - In production, you'd use HPA (Horizontal Pod Autoscaler) to scale
+#   dynamically based on CPU/memory usage (we'll add this in Phase 12)
+#
+# The Kubernetes Deployment controller ensures this many pods are always
+# running. If a pod dies, it's automatically recreated.
+replicaCount: 2
+
+
+# =============================================================================
+# Container Image Configuration
+# =============================================================================
+# Specifies which Docker image to deploy and how to pull it.
+image:
+  # Full path to the image in GCP Artifact Registry.
+  # Format: <region>-docker.pkg.dev/<project>/<repository>/<image>
+  repository: europe-west1-docker.pkg.dev/mcpauthprototype/mcp-server/mcp-auth-prototype
+
+  # Image tag. "v1" is the first version we pushed in Phase 5.
+  # In Phase 7 (CI), this will be updated automatically to the git SHA
+  # (e.g., "a1b2c3d") by the GitHub Actions pipeline.
+  #
+  # Why not "latest"?
+  # - "latest" is mutable: it can point to different images at different times
+  # - Git SHA tags are immutable: you always know exactly what's deployed
+  # - Rollbacks are trivial: just set the tag to a previous SHA
+  # - ArgoCD can detect the change and auto-deploy
+  tag: v1
+
+  # When to pull the image from the registry.
+  # - IfNotPresent: Only pull if the image isn't already cached on the node
+  #   (good for tagged images where the tag is immutable)
+  # - Always: Pull every time (needed for mutable tags like "latest")
+  # - Never: Only use locally cached images (for development)
+  pullPolicy: IfNotPresent
+
+
+# =============================================================================
+# Kubernetes Service Configuration
+# =============================================================================
+# A Service provides a stable network endpoint for the pods.
+# Without a Service, you'd have to track individual pod IPs (which change).
+service:
+  # Service type determines how the service is exposed:
+  # - ClusterIP: Only accessible within the cluster (default, most secure)
+  # - NodePort: Accessible on every node's IP at a static port (for dev)
+  # - LoadBalancer: Gets an external IP from the cloud provider (for production)
+  #
+  # We use ClusterIP because:
+  # 1. For now, we access via `kubectl port-forward` (Phase 6)
+  # 2. In Phase 10, an Ingress controller will route external traffic to this Service
+  type: ClusterIP
+
+  # The port the Service listens on. Clients connect to this port.
+  # Traffic is forwarded to the container's targetPort (8080).
+  port: 8080
+
+
+# =============================================================================
+# Resource Requests and Limits
+# =============================================================================
+# These control how much CPU and memory each pod can use.
+#
+# CRITICAL CONCEPT - Requests vs Limits:
+#
+# Requests ("what I need to be scheduled"):
+#   - The Kubernetes scheduler uses requests to decide which node to place
+#     the pod on. A pod with 100m CPU request will only be placed on a node
+#     with at least 100m CPU available.
+#   - Think of it as a "reservation" — the resources are guaranteed.
+#
+# Limits ("the maximum I'm allowed to use"):
+#   - CPU limit: If exceeded, the pod is throttled (runs slower, not killed)
+#   - Memory limit: If exceeded, the pod is OOM-killed (Out Of Memory) and
+#     restarted by Kubernetes
+#
+# Units:
+#   - CPU: "100m" = 100 millicores = 0.1 CPU core (1000m = 1 full core)
+#   - Memory: "128Mi" = 128 mebibytes (Mi = 1024^2 bytes, not 1000^2)
+#
+# Our MCP server is lightweight (Python, serves small documents), so these
+# values are conservative. Phase 12 (load testing) will help tune these.
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "200m"
+
+
+# =============================================================================
+# Application Environment Variables (non-secret)
+# =============================================================================
+# These map to the pydantic-settings configuration in src/config.py.
+# Each key becomes an environment variable in the container.
+#
+# Note: MCP_JWT_SECRET_KEY is NOT here because it's a secret. It's injected
+# separately from the K8s Secret created by External Secrets Operator
+# (see externalSecret section below).
+env:
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "8080"
+  MCP_LOG_LEVEL: "info"
+  MCP_JWT_ALGORITHM: "HS256"
+  MCP_DOCUMENTS_DIR: "/app/documents"
+
+
+# =============================================================================
+# Service Account Configuration
+# =============================================================================
+# Kubernetes ServiceAccounts provide identity for pods. Combined with
+# Workload Identity, they allow pods to authenticate to GCP services
+# without storing any credentials.
+#
+# We need TWO service accounts with different purposes:
+serviceAccount:
+  # 1. MCP Server ServiceAccount — used by the MCP server pods
+  #    Annotated with the mcp-server GCP SA. Currently has no GCP permissions
+  #    (the server doesn't need direct GCP access), but the binding exists
+  #    for future use (e.g., Cloud Logging, Cloud Trace).
+  mcp:
+    create: true
+    name: mcp-server
+    annotations:
+      iam.gke.io/gcp-service-account: mcp-server@mcpauthprototype.iam.gserviceaccount.com
+
+  # 2. ESO ServiceAccount — used by the SecretStore resource
+  #    Annotated with the eso-secret-accessor GCP SA, which has the
+  #    roles/secretmanager.secretAccessor permission. This is how ESO
+  #    authenticates to GCP Secret Manager via Workload Identity.
+  #
+  #    IMPORTANT: If you created this ServiceAccount manually during Phase 5,
+  #    set create: false to avoid a conflict error during helm install.
+  #    The SecretStore will still reference the name regardless of who created it.
+  eso:
+    create: true
+    name: eso-service-account
+    annotations:
+      iam.gke.io/gcp-service-account: eso-secret-accessor@mcpauthprototype.iam.gserviceaccount.com
+
+
+# =============================================================================
+# External Secrets Configuration
+# =============================================================================
+# Controls how the JWT signing key is synced from GCP Secret Manager into
+# the cluster via External Secrets Operator (ESO).
+#
+# The chain:
+#   GCP Secret Manager ("mcp-jwt-signing-key")
+#     -> SecretStore (connects ESO to GCP via Workload Identity)
+#       -> ExternalSecret (defines what to sync)
+#         -> K8s Secret "mcp-jwt-secret" (created by ESO automatically)
+#           -> Pod env var MCP_JWT_SECRET_KEY (via secretKeyRef in Deployment)
+#
+# Set enabled: false for local development (where you'd use MCP_JWT_SECRET_KEY
+# env var directly without ESO).
+externalSecret:
+  enabled: true
+  # Name of the SecretStore resource (referenced by ExternalSecret)
+  secretStore: gcp-secret-store
+  # Name of the secret in GCP Secret Manager
+  remoteRef: mcp-jwt-signing-key
+  # Name of the K8s Secret that ESO will create
+  secretName: mcp-jwt-secret
+  # Key name within the K8s Secret
+  secretKey: jwt-signing-key
+  # How often ESO re-checks GCP for changes (useful for secret rotation)
+  refreshInterval: 1h
+
+
+# =============================================================================
+# GCP Configuration
+# =============================================================================
+# GCP-specific settings used by the SecretStore to connect to Secret Manager.
+gcp:
+  projectId: mcpauthprototype
+  # Cluster details needed for Workload Identity authentication
+  clusterName: mcp-prototype
+  clusterLocation: europe-west1-b
+
+
+# =============================================================================
+# Health Probe Configuration
+# =============================================================================
+# Kubernetes uses probes to monitor pod health and make routing decisions.
+#
+# TWO TYPES OF PROBES (different purposes!):
+#
+# Liveness Probe - "Is the process alive?"
+#   - If it fails: Kubernetes RESTARTS the container (kill + recreate)
+#   - Use case: Detect deadlocks, infinite loops, unresponsive processes
+#   - Be conservative: false positives cause unnecessary restarts
+#
+# Readiness Probe - "Can this pod serve traffic?"
+#   - If it fails: Pod is removed from Service endpoints (no traffic routed to it)
+#   - The pod is NOT restarted — it stays running but receives no requests
+#   - Use case: Temporary unavailability (loading data, warming cache)
+#   - Our /ready endpoint checks that document files exist
+#
+# Parameters:
+#   - initialDelaySeconds: Wait this long before first probe (app startup time)
+#   - periodSeconds: How often to probe
+#   - failureThreshold: How many consecutive failures before taking action
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    path: /ready
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+
+
+# =============================================================================
+# Pod Anti-Affinity
+# =============================================================================
+# Controls whether Kubernetes tries to spread replicas across different nodes.
+#
+# Why spread pods across nodes?
+# - If one node goes down, the other replica on a different node keeps serving
+# - Demonstrates Kubernetes scheduling intelligence
+# - In production, this is essential for high availability
+#
+# We use "preferred" (soft) anti-affinity, not "required" (hard), because:
+# - Our 3-node cluster has limited resources
+# - System pods (ArgoCD, ESO, kube-system) also need node space
+# - "Required" would fail scheduling if both pods can't be on separate nodes
+# - "Preferred" means "try your best, but don't fail if you can't"
+podAntiAffinity:
+  enabled: true

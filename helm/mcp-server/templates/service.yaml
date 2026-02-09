@@ -1,0 +1,60 @@
+# =============================================================================
+# service.yaml - Kubernetes Service (Network Endpoint)
+# =============================================================================
+#
+# A Service provides a stable network identity for a set of pods.
+#
+# Why do we need a Service?
+# - Pods are ephemeral: they get random IPs that change when pods restart
+# - A Service gets a stable ClusterIP and DNS name that never changes
+# - It load-balances traffic across all matching pods automatically
+#
+# How it works:
+# 1. The Service watches for pods matching its selector labels
+# 2. It maintains an "endpoints" list of healthy pod IPs
+# 3. When traffic arrives at the Service IP, kube-proxy (on every node)
+#    routes it to one of the healthy pods using iptables/IPVS rules
+# 4. The readiness probe determines "healthy" — pods that fail readiness
+#    are removed from the endpoints list (no traffic routed to them)
+#
+# DNS:
+# Kubernetes automatically creates a DNS entry for this Service:
+#   <name>.<namespace>.svc.cluster.local
+# For us: mcp-server.mcp-prototype.svc.cluster.local
+# Any pod in the cluster can reach our MCP server using this DNS name.
+#
+# Service Types:
+# - ClusterIP (ours): Internal only. No external access.
+# - NodePort: Opens a port (30000-32767) on every node.
+# - LoadBalancer: Creates a cloud load balancer with an external IP.
+#
+# We use ClusterIP because:
+# - In Phase 6, we access via kubectl port-forward (tunnels through kubectl)
+# - In Phase 10, an Ingress controller will handle external access
+# - ClusterIP is the most secure: no attack surface from the internet
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-server.fullname" . }}
+  labels:
+    {{- include "mcp-server.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      # targetPort references the NAMED port "http" defined in the Deployment's
+      # container spec (deployment.yaml). Using named ports is better than
+      # hardcoding "8080" because:
+      # - If the container port changes, you only update the Deployment
+      # - The Service automatically follows the named port
+      targetPort: http
+      protocol: TCP
+      # Naming the Service port is useful for Ingress rules and monitoring
+      name: http
+  # Selector: which pods receive traffic from this Service.
+  # Only pods with BOTH of these labels get traffic.
+  # These labels are set on pods by the Deployment's pod template.
+  selector:
+    {{- include "mcp-server.selectorLabels" . | nindent 4 }}
