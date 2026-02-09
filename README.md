@@ -281,7 +281,7 @@ See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for the full build pl
 - [x] Phase 3: Tests
 - [x] Phase 4: Dockerize
 - [x] Phase 5: GCP Infrastructure + Terraform + GKE
-- [x] Phase 6: Helm chart *(templates written, deployment pending)*
+- [x] Phase 6: Helm chart
 - [ ] Phase 7: GitHub Actions CI pipeline
 - [ ] Phase 8: ArgoCD
 - [ ] Phase 9: End-to-end verification

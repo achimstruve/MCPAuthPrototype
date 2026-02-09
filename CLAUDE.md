@@ -204,7 +204,7 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 
 ---
 
-## Current Progress (Updated: 2026-02-08)
+## Current Progress (Updated: 2026-02-09)
 
 ### Completed
 - **Phases 0-4**: MCP server, auth, tests, Docker - all complete
@@ -214,22 +214,27 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
   - GKE cluster running (3 nodes, e2-medium, europe-west1-b, Workload Identity enabled)
   - Service accounts, Workload Identity bindings, cluster credentials configured
   - External Secrets Operator installed and healthy
-- **Phase 6 (partial)**: Helm chart templates written
-  - All 10 files created: Chart.yaml, values.yaml, values-dev.yaml, _helpers.tpl, deployment, service, configmap, serviceaccount, secretstore, externalsecret
-  - Chart lints clean and template rendering verified
-  - Awaiting `helm install` by the human
+- **Phase 6**: Helm chart complete and deployed
+  - All 10 templates created with comprehensive educational comments
+  - ESO API version fixed (`v1` not `v1beta1` for newer ESO)
+  - Resource limits increased (256Mi/512Mi) after OOM debugging
+  - 2 pods running on separate nodes, ExternalSecret synced, health probes passing
+  - Port-forward verified from both the dev VM and local Windows machine
 
 ### Next Steps (Resume Here)
-1. **Create namespace**: `kubectl create namespace mcp-prototype`
-2. **Install Helm chart**: `helm install mcp-server helm/mcp-server/ -n mcp-prototype`
-   - Note: If `eso-service-account` already exists, delete it first or use `--set serviceAccount.eso.create=false`
-3. **Verify deployment**: pods running, service exists, ExternalSecret synced, health probes passing
-4. **Port-forward and test**: `kubectl port-forward svc/mcp-server -n mcp-prototype 8080:8080`
+1. **Generate a JWT token** using the real secret from GCP Secret Manager and test the full auth flow via port-forward
+2. **Create GitHub Actions CI pipeline** (Phase 7)
 
 ### Infrastructure State
 - Terraform state is stored locally in `terraform/terraform.tfstate`
 - To see current state: `cd terraform && terraform show`
 - To verify no drift: `cd terraform && terraform plan` (should show no changes)
+- Helm release: `helm list -n mcp-prototype` shows the deployed chart
+
+### Lessons Learned
+- **ESO API version**: Newer ESO versions use `external-secrets.io/v1` (stable), not `v1beta1`. Always check with `kubectl api-resources | grep external-secrets`
+- **Python memory**: FastMCP + PyJWT + pydantic + uvicorn requires ~300MB at startup. Default 256Mi limit causes OOM kills (exit code 137). Use 512Mi minimum for Python MCP servers
+- **kubectl port-forward**: Creates a tunnel from any machine with cluster credentials to a Service inside the cluster. Works from any location — no VPN needed
 
 ### Important Files for Next Session
 - `helm/mcp-server/` - Complete Helm chart (10 files with educational comments)

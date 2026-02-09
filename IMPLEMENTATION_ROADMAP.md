@@ -174,12 +174,12 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 - [x] **[AGENT]** Create `helm/mcp-server/templates/secretstore.yaml`: SecretStore connecting ESO to GCP Secret Manager
 - [x] **[BOTH]** Lint chart: `helm lint helm/mcp-server/`
 - [x] **[BOTH]** Render templates locally: `helm template mcp-server helm/mcp-server/` and review output
-- [ ] **[HUMAN]** Create namespace: `kubectl create namespace mcp-prototype`
-- [ ] **[HUMAN]** Install chart: `helm install mcp-server helm/mcp-server/ -n mcp-prototype`
-- [ ] **[HUMAN]** Verify pods are running across nodes: `kubectl get pods -n mcp-prototype -o wide`
-- [ ] **[HUMAN]** Verify service exists: `kubectl get svc -n mcp-prototype`
-- [ ] **[HUMAN]** Check logs: `kubectl logs -n mcp-prototype -l app.kubernetes.io/name=mcp-server`
-- [ ] **[HUMAN]** Port-forward and test: `kubectl port-forward svc/mcp-server -n mcp-prototype 8080:8080`
+- [x] **[HUMAN]** Create namespace: `kubectl create namespace mcp-prototype`
+- [x] **[HUMAN]** Install chart: `helm install mcp-server helm/mcp-server/ -n mcp-prototype`
+- [x] **[HUMAN]** Verify pods are running across nodes: `kubectl get pods -n mcp-prototype -o wide`
+- [x] **[HUMAN]** Verify service exists: `kubectl get svc -n mcp-prototype`
+- [x] **[HUMAN]** Check logs: `kubectl logs -n mcp-prototype -l app.kubernetes.io/name=mcp-server`
+- [x] **[HUMAN]** Port-forward and test: `kubectl port-forward svc/mcp-server -n mcp-prototype 8080:8080`
 
 **Verify before moving on:** 2 pods running on different nodes, service routing traffic, health probes passing, JWT secret injected from Secret Manager.
 
