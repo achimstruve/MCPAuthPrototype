@@ -220,10 +220,10 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
   - Resource limits increased (256Mi/512Mi) after OOM debugging
   - 2 pods running on separate nodes, ExternalSecret synced, health probes passing
   - Port-forward verified from both the dev VM and local Windows machine
+  - Full auth flow tested with Claude Code: three tokens with different scopes produce different tool visibility (public-only, full-access, no-access)
 
 ### Next Steps (Resume Here)
-1. **Generate a JWT token** using the real secret from GCP Secret Manager and test the full auth flow via port-forward
-2. **Create GitHub Actions CI pipeline** (Phase 7)
+1. **Create GitHub Actions CI pipeline** (Phase 7)
 
 ### Infrastructure State
 - Terraform state is stored locally in `terraform/terraform.tfstate`
