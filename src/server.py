@@ -1,6 +1,8 @@
 """
 MCP Server implementation using FastMCP v2 with JWT authentication middleware.
 
+Deployed via CI/CD: GitHub Actions (build) → ArgoCD (deploy).
+
 This module creates and runs the MCP server with:
 - Two tools: get_public_info and get_confidential_info
 - JWT authentication: every MCP request must include a valid Bearer token

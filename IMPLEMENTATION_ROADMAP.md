@@ -212,11 +212,11 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 > **This is a key learning phase.** The agent writes the ArgoCD Application manifest. The human installs ArgoCD and configures it manually.
 
-- [ ] **[HUMAN]** Install ArgoCD in the cluster (namespace: `argocd`)
-- [ ] **[HUMAN]** Access ArgoCD UI via port-forward, retrieve initial admin password
+- [x] **[HUMAN]** Install ArgoCD in the cluster (namespace: `argocd`)
+- [x] **[HUMAN]** Access ArgoCD UI via port-forward, retrieve initial admin password
 - [x] **[AGENT]** Create `argocd/application.yaml`: ArgoCD Application resource (source: GitHub repo + helm/mcp-server path, destination: mcp-prototype namespace, auto-sync enabled)
-- [ ] **[HUMAN]** Apply the Application: `kubectl apply -f argocd/application.yaml`
-- [ ] **[HUMAN]** Verify in ArgoCD UI: Application shows as Synced and Healthy
+- [x] **[HUMAN]** Apply the Application: `kubectl apply -f argocd/application.yaml`
+- [x] **[HUMAN]** Verify in ArgoCD UI: Application shows as Synced and Healthy
 - [ ] **[HUMAN]** Test auto-sync: push a code change, wait for CI to update the image tag, watch ArgoCD deploy the new version
 - [ ] **[HUMAN]** Verify rolling update: observe old pods being replaced by new ones with `kubectl get pods -n mcp-prototype -w`
 
