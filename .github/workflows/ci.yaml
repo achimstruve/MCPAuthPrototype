@@ -175,9 +175,15 @@ jobs:
       # -----------------------------------------------------------------------
       # uv sync reads pyproject.toml and uv.lock to install all dependencies.
       # --frozen ensures we use exact versions from the lock file (reproducible).
-      # We include dev dependencies here because we need pytest and ruff.
+      #
+      # --extra dev: Install the "dev" optional dependency group, which includes
+      # ruff (linter) and pytest (testing). Without this flag, uv only installs
+      # runtime dependencies — we'd have ruff and pytest missing!
+      #
+      # In pyproject.toml, dev deps are under [project.optional-dependencies]:
+      #   dev = ["pytest", "pytest-asyncio", "httpx", "ruff"]
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       # -----------------------------------------------------------------------
       # Step 5: Lint with Ruff
