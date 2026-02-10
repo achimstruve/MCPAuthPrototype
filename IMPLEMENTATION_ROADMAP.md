@@ -195,11 +195,10 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 - [x] **[AGENT]** Create `.github/workflows/ci.yaml`: complete CI pipeline (checkout, setup uv, lint, test, authenticate to GCP via Workload Identity Federation, build Docker image with git SHA tag, push to Artifact Registry, update values.yaml image tag, commit and push)
 - [x] **[AGENT]** Create `terraform/github-wif.tf`: Workload Identity Federation resources (pool, OIDC provider, CI service account, IAM bindings) — managed as IaC
-- [ ] **[HUMAN]** Apply Terraform to create WIF resources, then configure GitHub repository variable
-- [ ] **[HUMAN]** Configure required GitHub repository settings (Workload Identity Provider resource name, GCP service account)
-- [ ] **[HUMAN]** Push a commit to `main` and verify the pipeline runs successfully
-- [ ] **[HUMAN]** Verify image appears in Artifact Registry with the git SHA tag
-- [ ] **[HUMAN]** Verify `values.yaml` was updated with the new image tag
+- [x] **[HUMAN]** Apply Terraform to create WIF resources, then configure GitHub repository variable (`GCP_PROJECT_NUMBER`)
+- [x] **[HUMAN]** Push a commit to `main` and verify the pipeline runs successfully
+- [x] **[HUMAN]** Verify image appears in Artifact Registry with the git SHA tag
+- [x] **[HUMAN]** Verify `values.yaml` was updated with the new image tag
 
 **Verify before moving on:** Push to main triggers green pipeline, image pushed to registry, Helm values updated in Git.
 
@@ -215,7 +214,7 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 - [ ] **[HUMAN]** Install ArgoCD in the cluster (namespace: `argocd`)
 - [ ] **[HUMAN]** Access ArgoCD UI via port-forward, retrieve initial admin password
-- [ ] **[AGENT]** Create `argocd/application.yaml`: ArgoCD Application resource (source: GitHub repo + helm/mcp-server path, destination: mcp-prototype namespace, auto-sync enabled)
+- [x] **[AGENT]** Create `argocd/application.yaml`: ArgoCD Application resource (source: GitHub repo + helm/mcp-server path, destination: mcp-prototype namespace, auto-sync enabled)
 - [ ] **[HUMAN]** Apply the Application: `kubectl apply -f argocd/application.yaml`
 - [ ] **[HUMAN]** Verify in ArgoCD UI: Application shows as Synced and Healthy
 - [ ] **[HUMAN]** Test auto-sync: push a code change, wait for CI to update the image tag, watch ArgoCD deploy the new version

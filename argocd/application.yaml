@@ -1,0 +1,197 @@
+# =============================================================================
+# application.yaml - ArgoCD Application Resource
+# =============================================================================
+#
+# WHAT IS ARGOCD?
+# ArgoCD is a GitOps continuous deployment tool for Kubernetes. It:
+#   1. Watches a Git repository for changes
+#   2. Compares the desired state (in Git) with the actual state (in the cluster)
+#   3. Automatically (or manually) syncs the cluster to match Git
+#
+# WHAT IS GITOPS?
+# GitOps is a pattern where Git is the SINGLE SOURCE OF TRUTH for your
+# infrastructure. Instead of running `helm upgrade` manually, you:
+#   1. Update the Helm values in Git (CI does this automatically)
+#   2. ArgoCD detects the change
+#   3. ArgoCD applies the change to the cluster
+#
+# Benefits:
+#   - Auditable: Every change is a git commit (who changed what, when, why)
+#   - Reversible: Roll back by reverting a commit
+#   - Declarative: The repo always reflects the desired state
+#   - Self-healing: If someone manually changes the cluster, ArgoCD reverts it
+#
+# THE ARGOCD SYNC LOOP:
+#
+#   ┌─────────────────────────────────────────────────────────┐
+#   │                                                         │
+#   │   Git Repository                  Kubernetes Cluster    │
+#   │   (desired state)                 (actual state)        │
+#   │                                                         │
+#   │   helm/mcp-server/                mcp-prototype ns      │
+#   │     values.yaml ──────ArgoCD──────▶ Deployment          │
+#   │     templates/        compares &     Service            │
+#   │                       syncs          ConfigMap          │
+#   │                                      Pods (x2)         │
+#   │                                                         │
+#   └─────────────────────────────────────────────────────────┘
+#
+#   Every 3 minutes (default), ArgoCD:
+#     1. Pulls the latest from the Git repo
+#     2. Renders the Helm chart (helm template)
+#     3. Compares rendered manifests with what's in the cluster
+#     4. If different → shows "OutOfSync" → auto-sync applies changes
+#     5. If same → shows "Synced" → nothing to do
+#
+# WHAT IS AN APPLICATION RESOURCE?
+# An ArgoCD Application is a custom Kubernetes resource (CRD) that tells
+# ArgoCD: "Watch THIS repo, deploy to THIS namespace, using THESE settings."
+# It's the bridge between your Git repo and your cluster.
+#
+# INTERVIEW TALKING POINTS:
+#   - "We use ArgoCD for GitOps-based continuous deployment"
+#   - "Git is our single source of truth — the cluster always matches the repo"
+#   - "Auto-sync with self-healing means manual cluster changes get reverted"
+#   - "The full loop: push code → CI builds image → CI updates values.yaml →
+#      ArgoCD detects change → ArgoCD deploys new version"
+# =============================================================================
+
+
+# The API version and kind identify this as an ArgoCD Application.
+# This is a Custom Resource Definition (CRD) — it only exists because
+# ArgoCD installed its CRDs when you set it up in the cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+
+metadata:
+  # Name of the Application as shown in the ArgoCD UI
+  name: mcp-server
+
+  # ArgoCD Applications MUST live in the argocd namespace.
+  # This is where the ArgoCD controller looks for Application resources.
+  # (The workloads themselves deploy to a different namespace — see destination below)
+  namespace: argocd
+
+  # Labels for organization. These appear in the ArgoCD UI and can be
+  # used to filter/group applications.
+  labels:
+    project: mcp-auth-prototype
+    managed-by: argocd
+
+  # ---------------------------------------------------------------------------
+  # Finalizers
+  # ---------------------------------------------------------------------------
+  # A finalizer tells Kubernetes: "Before deleting this resource, run some
+  # cleanup logic first."
+  #
+  # The resources-finalizer ensures that when you delete this Application,
+  # ArgoCD also deletes the deployed resources (Deployment, Service, etc.)
+  # from the cluster. Without it, deleting the Application would leave
+  # orphaned resources running.
+  #
+  # Options:
+  #   - resources-finalizer.argocd.argoproj.io: Delete deployed resources (cascade delete)
+  #   - Remove the finalizer: Keep deployed resources after Application deletion
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  # ---------------------------------------------------------------------------
+  # Project
+  # ---------------------------------------------------------------------------
+  # ArgoCD Projects are a way to group Applications and restrict what they
+  # can do (which repos they can pull from, which clusters/namespaces they
+  # can deploy to).
+  #
+  # "default" is the built-in project with no restrictions.
+  # In production, you'd create specific projects for each team/environment.
+  project: default
+
+  # ---------------------------------------------------------------------------
+  # Source: WHERE to get the desired state
+  # ---------------------------------------------------------------------------
+  # Tells ArgoCD which Git repo and path contain the Helm chart.
+  source:
+    # The GitHub repository URL. ArgoCD will clone/pull from this.
+    # For public repos, no credentials are needed.
+    # For private repos, you'd configure a deploy key or access token in ArgoCD.
+    repoURL: https://github.com/achimstruve/MCPAuthPrototype.git
+
+    # Which branch/tag/commit to track.
+    # HEAD means "always use the latest commit on the default branch (main)."
+    # You could also pin to a specific branch: "main"
+    # Or a tag: "v1.0.0" (useful for production environments)
+    targetRevision: HEAD
+
+    # Path within the repo where the Helm chart lives.
+    # ArgoCD will look for Chart.yaml in this directory.
+    path: helm/mcp-server
+
+    # ---------------------------------------------------------------------------
+    # Helm-specific configuration
+    # ---------------------------------------------------------------------------
+    # Since our source is a Helm chart (not plain YAML manifests), we tell
+    # ArgoCD to render it using Helm before applying.
+    #
+    # ArgoCD runs the equivalent of:
+    #   helm template mcp-server ./helm/mcp-server -f values.yaml
+    # and then applies the rendered manifests to the cluster.
+    helm:
+      # Use the values.yaml file from the chart directory.
+      # This is the file that CI updates with the new image tag.
+      # ArgoCD will detect when this file changes and trigger a sync.
+      valueFiles:
+        - values.yaml
+
+  # ---------------------------------------------------------------------------
+  # Destination: WHERE to deploy
+  # ---------------------------------------------------------------------------
+  # Tells ArgoCD which cluster and namespace to deploy the resources to.
+  destination:
+    # The Kubernetes API server URL.
+    # "https://kubernetes.default.svc" is a special URL that means
+    # "the same cluster ArgoCD is running in" (in-cluster deployment).
+    #
+    # For multi-cluster setups, you'd register external clusters and use
+    # their API server URLs here.
+    server: https://kubernetes.default.svc
+
+    # The namespace where workloads will be deployed.
+    # This must match the namespace used by the Helm chart.
+    namespace: mcp-prototype
+
+  # ---------------------------------------------------------------------------
+  # Sync Policy: HOW and WHEN to deploy
+  # ---------------------------------------------------------------------------
+  # This is where you control ArgoCD's behavior.
+  syncPolicy:
+    # -------------------------------------------------------------------------
+    # Automated Sync
+    # -------------------------------------------------------------------------
+    # With automated sync, ArgoCD automatically applies changes when it
+    # detects the Git repo has diverged from the cluster state.
+    #
+    # Without this, you'd need to manually click "Sync" in the ArgoCD UI
+    # or run `argocd app sync mcp-server` every time.
+    automated:
+      # Prune: Delete resources from the cluster that no longer exist in Git.
+      # Example: If you remove the ConfigMap template from the Helm chart,
+      # ArgoCD will delete the ConfigMap from the cluster.
+      # Without prune, deleted resources would become "orphaned" in the cluster.
+      prune: true
+
+      # Self-heal: If someone manually changes a resource in the cluster
+      # (e.g., kubectl edit deployment), ArgoCD reverts it to match Git.
+      # This enforces Git as the single source of truth.
+      #
+      # Example: Someone manually scales to 5 replicas with kubectl.
+      # ArgoCD detects the drift and scales back to 2 (what's in values.yaml).
+      selfHeal: true
+
+    # -------------------------------------------------------------------------
+    # Sync Options
+    # -------------------------------------------------------------------------
+    syncOptions:
+      # CreateNamespace: If the target namespace doesn't exist, create it.
+      # Without this, the sync would fail if mcp-prototype namespace was deleted.
+      - CreateNamespace=true
