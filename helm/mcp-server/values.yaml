@@ -51,7 +51,7 @@ image:
   # - Git SHA tags are immutable: you always know exactly what's deployed
   # - Rollbacks are trivial: just set the tag to a previous SHA
   # - ArgoCD can detect the change and auto-deploy
-  tag: "7bf5fde"
+  tag: "9ceb4fa"
 
   # When to pull the image from the registry.
   # - IfNotPresent: Only pull if the image isn't already cached on the node
