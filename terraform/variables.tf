@@ -132,3 +132,17 @@ variable "labels" {
     managed-by  = "terraform"
   }
 }
+
+# -----------------------------------------------------------------------------
+# GitHub Actions CI Configuration (Phase 7)
+# -----------------------------------------------------------------------------
+
+variable "github_repo" {
+  description = "GitHub repository in 'owner/repo' format (used for Workload Identity Federation)"
+  type        = string
+  default     = "achimstruve/MCPAuthPrototype"
+
+  # This is used in the WIF attribute_condition to restrict which repo
+  # can authenticate to GCP. Only workflows from THIS repo can get
+  # GCP credentials — forks and other repos are blocked.
+}

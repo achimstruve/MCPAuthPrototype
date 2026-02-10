@@ -1,0 +1,391 @@
+# =============================================================================
+# ci.yaml - GitHub Actions CI/CD Pipeline
+# =============================================================================
+#
+# WHAT IS GITHUB ACTIONS?
+# GitHub Actions is a CI/CD (Continuous Integration / Continuous Deployment)
+# platform built into GitHub. It runs automated workflows when events happen
+# in your repository (push, pull request, tag, etc.).
+#
+# KEY CONCEPTS:
+#   - Workflow: A YAML file in .github/workflows/ that defines automation
+#   - Job:     A set of steps that run on the same runner (virtual machine)
+#   - Step:    A single task (run a command, use an action, etc.)
+#   - Action:  A reusable unit of code (like a function for CI/CD)
+#   - Runner:  The VM that executes the job (we use GitHub-hosted ubuntu)
+#
+# WHAT THIS PIPELINE DOES:
+#   1. Lint the Python code (catch style/import issues fast)
+#   2. Run all tests (verify nothing is broken)
+#   3. Authenticate to GCP using Workload Identity Federation (no stored keys!)
+#   4. Build a Docker image tagged with the git commit SHA
+#   5. Push the image to GCP Artifact Registry
+#   6. Update the Helm values.yaml with the new image tag
+#   7. Commit and push the updated values.yaml (for ArgoCD to pick up)
+#
+# WHY THIS MATTERS:
+#   Before CI, deploying a code change required manual steps:
+#     1. Run tests locally
+#     2. Build Docker image
+#     3. Push to registry
+#     4. Edit values.yaml
+#     5. Commit and push
+#   Now, all of this happens automatically on every push to main!
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Workflow Name
+# -----------------------------------------------------------------------------
+# This name appears in the GitHub Actions tab of your repository.
+name: CI Pipeline
+
+
+# -----------------------------------------------------------------------------
+# Trigger Configuration
+# -----------------------------------------------------------------------------
+# "on" defines WHEN this workflow runs.
+#
+# We trigger on pushes to the main branch, but ONLY when relevant files change.
+# This prevents the pipeline from running when only documentation is updated.
+#
+# The path filters are important for avoiding infinite loops:
+# When CI updates values.yaml and pushes, that push would normally re-trigger CI.
+# We handle this two ways:
+#   1. The automated commit message includes "[skip ci]" (GitHub respects this)
+#   2. Path filters exclude helm/ changes from triggering the pipeline
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Only trigger when source code, tests, config, or Docker files change
+      - "src/**"
+      - "tests/**"
+      - "documents/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/**"
+
+
+# -----------------------------------------------------------------------------
+# Workflow-Level Permissions
+# -----------------------------------------------------------------------------
+# GitHub Actions uses a GITHUB_TOKEN that's automatically created for each run.
+# By default, it has read-only access. We need to explicitly grant:
+#
+#   - contents: write  → Push the updated values.yaml back to the repo
+#   - id-token: write  → Request an OIDC token for Workload Identity Federation
+#
+# SECURITY NOTE: These permissions apply to the GITHUB_TOKEN only. The
+# Workload Identity Federation setup separately controls what the pipeline
+# can do in GCP (e.g., push to Artifact Registry but NOT delete clusters).
+permissions:
+  contents: write
+  id-token: write
+
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+# Variables used across multiple steps. Defined once here for DRY principle.
+#
+# ABOUT THE IMAGE TAG STRATEGY:
+#   We tag Docker images with the git commit SHA (short form, 7 characters).
+#   Example: "a1b2c3d" instead of "v1" or "latest"
+#
+#   Why git SHA tags?
+#   - Immutable: Each tag maps to exactly one image (unlike "latest")
+#   - Traceable: You can always find the exact code that built any image
+#   - Rollback-friendly: Just change the tag to a previous SHA
+#   - No version debates: No need to decide v1.2.3 vs v1.3.0
+env:
+  # GCP project and region (must match your Terraform configuration)
+  GCP_PROJECT_ID: mcpauthprototype
+  GCP_REGION: europe-west1
+
+  # Full path to the Docker image in Artifact Registry
+  # Format: <region>-docker.pkg.dev/<project>/<repository>/<image>
+  IMAGE: europe-west1-docker.pkg.dev/mcpauthprototype/mcp-server/mcp-auth-prototype
+
+
+# =============================================================================
+# JOBS
+# =============================================================================
+# We use two jobs:
+#   1. "test" - Fast feedback: lint and test (no GCP auth needed)
+#   2. "build-and-push" - Build image, push to registry, update Helm values
+#
+# Why separate jobs?
+#   - test runs fast (~30s) and doesn't need GCP credentials
+#   - If tests fail, we don't waste time on Docker build (~2min)
+#   - Clearer pipeline visualization in GitHub UI
+#   - In a team setting, test can run on PRs while build only runs on main
+# =============================================================================
+
+jobs:
+
+  # ===========================================================================
+  # Job 1: Lint and Test
+  # ===========================================================================
+  # Runs Python linting and the full test suite.
+  # This job uses NO cloud credentials — it's pure code quality checks.
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout Code
+      # -----------------------------------------------------------------------
+      # actions/checkout clones your repository into the runner's workspace.
+      # Without this, the runner has an empty filesystem!
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Install uv
+      # -----------------------------------------------------------------------
+      # uv is our Python package manager (like pip but much faster).
+      # astral-sh/setup-uv installs uv and optionally caches dependencies.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          # Enable caching to speed up subsequent runs.
+          # uv stores downloaded packages in a cache directory.
+          # GitHub Actions caches this between runs, so only new/changed
+          # packages need to be downloaded.
+          enable-cache: true
+
+      # -----------------------------------------------------------------------
+      # Step 3: Set Up Python
+      # -----------------------------------------------------------------------
+      # Install the specific Python version our project requires.
+      # This matches the version in pyproject.toml (requires-python = ">=3.11")
+      # and the Dockerfile (python3.11-bookworm).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # -----------------------------------------------------------------------
+      # Step 4: Install Dependencies
+      # -----------------------------------------------------------------------
+      # uv sync reads pyproject.toml and uv.lock to install all dependencies.
+      # --frozen ensures we use exact versions from the lock file (reproducible).
+      # We include dev dependencies here because we need pytest and ruff.
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # -----------------------------------------------------------------------
+      # Step 5: Lint with Ruff
+      # -----------------------------------------------------------------------
+      # Ruff is an extremely fast Python linter (written in Rust).
+      # It checks for:
+      #   - E: PEP 8 style errors (whitespace, indentation)
+      #   - F: Pyflakes errors (unused imports, undefined names)
+      #   - I: isort (import ordering)
+      #
+      # If linting fails, the whole pipeline fails immediately (fail fast).
+      - name: Lint with Ruff
+        run: uv run ruff check .
+
+      # -----------------------------------------------------------------------
+      # Step 6: Run Tests
+      # -----------------------------------------------------------------------
+      # pytest runs all test files matching test_*.py in the tests/ directory.
+      # We currently have 22 tests covering:
+      #   - JWT token validation (valid, expired, invalid, missing)
+      #   - Scope-based authorization (public-only, full-access, no-access)
+      #   - Tool functionality (public info, confidential info)
+      #   - Health and readiness endpoints
+      - name: Run tests
+        run: uv run pytest
+
+
+  # ===========================================================================
+  # Job 2: Build, Push, and Update Helm Values
+  # ===========================================================================
+  # This job runs ONLY after tests pass (needs: [test]).
+  # It authenticates to GCP, builds the Docker image, pushes it,
+  # then updates the Helm chart to point to the new image.
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+
+    # Only run this job if the test job succeeded
+    needs: [test]
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout Code
+      # -----------------------------------------------------------------------
+      # We need to checkout again because each job runs on a fresh runner.
+      # Jobs don't share filesystems (they may run on different VMs).
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Authenticate to GCP via Workload Identity Federation
+      # -----------------------------------------------------------------------
+      # THIS IS THE KEY SECURITY STEP!
+      #
+      # Traditional approach (insecure):
+      #   Store a GCP service account key as a GitHub secret.
+      #   Problems: Long-lived credential, can be leaked, hard to rotate.
+      #
+      # Workload Identity Federation approach (what we use):
+      #   1. GitHub Actions mints an OIDC token (proves "I am this workflow")
+      #   2. The token is sent to Google's Security Token Service (STS)
+      #   3. Google verifies the token against the GitHub OIDC issuer
+      #   4. Google checks: Is this repo allowed? (attribute_condition in WIF)
+      #   5. If valid, Google issues a short-lived GCP access token
+      #   6. The access token is used for all subsequent GCP operations
+      #
+      # Result: No stored credentials! Each run gets a fresh, temporary token.
+      #
+      # The workload_identity_provider and service_account values come from
+      # the Terraform resources we created in terraform/github-wif.tf.
+      - name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          # Full resource name of the WIF provider
+          # Format: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+          #
+          # NOTE: Replace <YOUR_GCP_PROJECT_NUMBER> with your actual project number!
+          # Find it with: gcloud projects describe mcpauthprototype --format="value(projectNumber)"
+          workload_identity_provider: "projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider"
+
+          # The GCP service account that GitHub Actions will impersonate.
+          # This SA has roles/artifactregistry.writer permission.
+          service_account: "github-actions-ci@mcpauthprototype.iam.gserviceaccount.com"
+
+      # -----------------------------------------------------------------------
+      # Step 3: Set Up Google Cloud SDK
+      # -----------------------------------------------------------------------
+      # Installs and configures the gcloud CLI. The auth step above already
+      # created credentials, so gcloud will use them automatically.
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # -----------------------------------------------------------------------
+      # Step 4: Configure Docker for Artifact Registry
+      # -----------------------------------------------------------------------
+      # This tells Docker to use gcloud as a credential helper for the
+      # europe-west1-docker.pkg.dev registry. Without this, docker push
+      # would fail with "unauthorized".
+      #
+      # Under the hood, this adds an entry to ~/.docker/config.json:
+      #   "europe-west1-docker.pkg.dev": { "credHelper": "gcloud" }
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # -----------------------------------------------------------------------
+      # Step 5: Generate Image Tag
+      # -----------------------------------------------------------------------
+      # Create the image tag from the git commit SHA.
+      # We use the short SHA (7 characters) for readability while still being
+      # unique enough to avoid collisions.
+      #
+      # Example: commit abc1234def5678 → tag "abc1234"
+      #
+      # GITHUB_OUTPUT is a special file that lets steps share data.
+      # After this step, other steps can use: ${{ steps.tag.outputs.short_sha }}
+      - name: Generate image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Image will be tagged: ${SHORT_SHA}"
+
+      # -----------------------------------------------------------------------
+      # Step 6: Build Docker Image
+      # -----------------------------------------------------------------------
+      # Build the multi-stage Docker image from our Dockerfile.
+      # The -t flag tags the image with our full registry path + git SHA.
+      #
+      # Docker build context is the current directory (.), which means
+      # Docker can access all files not excluded by .dockerignore.
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ steps.tag.outputs.short_sha }} \
+            .
+
+      # -----------------------------------------------------------------------
+      # Step 7: Push Docker Image to Artifact Registry
+      # -----------------------------------------------------------------------
+      # Push the tagged image to GCP Artifact Registry.
+      # The gcloud credential helper (configured in Step 4) handles auth.
+      #
+      # After this step, the image is available at:
+      #   europe-west1-docker.pkg.dev/mcpauthprototype/mcp-server/mcp-auth-prototype:<sha>
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ steps.tag.outputs.short_sha }}
+
+      # -----------------------------------------------------------------------
+      # Step 8: Update Helm Values with New Image Tag
+      # -----------------------------------------------------------------------
+      # This is the GITOPS BRIDGE between CI and CD.
+      #
+      # The pattern:
+      #   1. CI builds image and pushes to registry (done above)
+      #   2. CI updates the Helm values.yaml to reference the new image tag
+      #   3. CI commits and pushes the change to the Git repo
+      #   4. ArgoCD (Phase 8) watches the repo and detects the change
+      #   5. ArgoCD deploys the new version to the GKE cluster
+      #
+      # By updating values.yaml in Git, we maintain Git as the single source
+      # of truth. Anyone can see exactly what version is deployed by looking
+      # at the repo — no need to inspect the cluster directly.
+      #
+      # sed command explanation:
+      #   -i: Edit the file in place
+      #   s/  tag: .*/  tag: NEW_TAG/: Replace the tag line with the new value
+      #   The regex matches "  tag: " followed by anything, preserving indentation
+      - name: Update Helm values.yaml
+        run: |
+          sed -i "s/  tag: .*/  tag: \"${{ steps.tag.outputs.short_sha }}\"/" helm/mcp-server/values.yaml
+          echo "Updated values.yaml to tag: ${{ steps.tag.outputs.short_sha }}"
+          echo "--- Updated content ---"
+          grep "tag:" helm/mcp-server/values.yaml
+
+      # -----------------------------------------------------------------------
+      # Step 9: Commit and Push Updated Values
+      # -----------------------------------------------------------------------
+      # Commit the values.yaml change and push it back to the repository.
+      #
+      # IMPORTANT DETAILS:
+      #
+      # 1. Git identity: We use the github-actions[bot] identity, which is
+      #    the standard convention for automated commits. This makes it clear
+      #    in the git log that a human didn't make this change.
+      #
+      # 2. [skip ci] in the commit message: This is a GitHub convention that
+      #    tells GitHub Actions NOT to trigger a new workflow run for this commit.
+      #    Without it, we'd get an infinite loop:
+      #      Push code → CI runs → CI pushes values.yaml → CI runs → CI pushes...
+      #
+      # 3. git diff --quiet: This checks if there are actual changes.
+      #    If someone re-runs the pipeline for the same commit, the tag
+      #    would be the same and there'd be nothing to commit. Without this
+      #    check, git commit would fail on "nothing to commit".
+      - name: Commit and push updated values
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add helm/mcp-server/values.yaml
+
+          # Only commit if there are actual changes
+          if git diff --cached --quiet; then
+            echo "No changes to values.yaml (tag already up to date)"
+          else
+            git commit -m "ci: update image tag to ${{ steps.tag.outputs.short_sha }} [skip ci]"
+            git push
+            echo "Successfully pushed updated values.yaml"
+          fi

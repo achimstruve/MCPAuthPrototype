@@ -87,3 +87,30 @@ output "region" {
   description = "The GCP region"
   value       = var.region
 }
+
+# -----------------------------------------------------------------------------
+# GitHub Actions CI Outputs (Phase 7)
+# -----------------------------------------------------------------------------
+# These outputs provide the values needed to configure the GitHub Actions
+# workflow and verify the WIF setup.
+
+output "github_wif_provider" {
+  description = "Full resource name of the WIF provider (used in GitHub Actions workflow)"
+  value       = google_iam_workload_identity_pool_provider.github.name
+
+  # This is what you'll use in the GitHub Actions workflow:
+  #   workload_identity_provider: "projects/<number>/locations/global/..."
+}
+
+output "github_actions_service_account" {
+  description = "Email of the GitHub Actions CI service account"
+  value       = google_service_account.github_actions.email
+
+  # This is used in the GitHub Actions workflow:
+  #   service_account: "github-actions-ci@mcpauthprototype.iam.gserviceaccount.com"
+}
+
+output "github_wif_pool_name" {
+  description = "Name of the Workload Identity Pool (for debugging)"
+  value       = google_iam_workload_identity_pool.github.name
+}

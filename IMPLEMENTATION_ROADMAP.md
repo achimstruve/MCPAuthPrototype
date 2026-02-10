@@ -193,8 +193,9 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 > **This is a key learning phase.** The agent writes the workflow file. The human configures GitHub secrets and Workload Identity Federation manually.
 
-- [ ] **[AGENT]** Create `.github/workflows/ci.yaml`: complete CI pipeline (checkout, setup uv, lint, test, authenticate to GCP via Workload Identity Federation, build Docker image with git SHA tag, push to Artifact Registry, update values.yaml image tag, commit and push)
-- [ ] **[HUMAN]** Set up Workload Identity Federation in GCP for GitHub Actions (create workload identity pool, provider, and IAM bindings)
+- [x] **[AGENT]** Create `.github/workflows/ci.yaml`: complete CI pipeline (checkout, setup uv, lint, test, authenticate to GCP via Workload Identity Federation, build Docker image with git SHA tag, push to Artifact Registry, update values.yaml image tag, commit and push)
+- [x] **[AGENT]** Create `terraform/github-wif.tf`: Workload Identity Federation resources (pool, OIDC provider, CI service account, IAM bindings) — managed as IaC
+- [ ] **[HUMAN]** Apply Terraform to create WIF resources, then configure GitHub repository variable
 - [ ] **[HUMAN]** Configure required GitHub repository settings (Workload Identity Provider resource name, GCP service account)
 - [ ] **[HUMAN]** Push a commit to `main` and verify the pipeline runs successfully
 - [ ] **[HUMAN]** Verify image appears in Artifact Registry with the git SHA tag
