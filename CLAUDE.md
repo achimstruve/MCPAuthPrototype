@@ -204,78 +204,67 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 
 ---
 
-## Current Progress (Updated: 2026-02-09)
+## Current Progress (Updated: 2026-02-10)
 
 ### Completed
 - **Phases 0-4**: MCP server, auth, tests, Docker - all complete
 - **Phase 5**: GCP infrastructure fully provisioned
-  - GCP APIs, Artifact Registry (`mcp-auth-prototype:v1`), Secret Manager (`mcp-jwt-signing-key`)
+  - GCP APIs, Artifact Registry, Secret Manager (`mcp-jwt-signing-key`)
   - Terraform IaC managing all GCP resources
   - GKE cluster running (3 nodes, e2-medium, europe-west1-b, Workload Identity enabled)
   - Service accounts, Workload Identity bindings, cluster credentials configured
   - External Secrets Operator installed and healthy
 - **Phase 6**: Helm chart complete and deployed
   - All 10 templates created with comprehensive educational comments
-  - ESO API version fixed (`v1` not `v1beta1` for newer ESO)
-  - Resource limits increased (256Mi/512Mi) after OOM debugging
   - 2 pods running on separate nodes, ExternalSecret synced, health probes passing
-  - Port-forward verified from both the dev VM and local Windows machine
-  - Full auth flow tested with Claude Code: three tokens with different scopes produce different tool visibility (public-only, full-access, no-access)
+  - Full auth flow tested with Claude Code: three tokens with different scopes produce different tool visibility
+- **Phase 7**: GitHub Actions CI pipeline
+  - `.github/workflows/ci.yaml`: Two-job pipeline (test → build-and-push)
+  - `terraform/github-wif.tf`: Workload Identity Federation (OIDC, no stored keys)
+  - CI lints (ruff), tests (pytest), builds Docker image with git SHA tag, pushes to Artifact Registry, updates values.yaml
+  - GitHub variable `GCP_PROJECT_NUMBER` configured for WIF
+  - Pipeline tested and verified green
+- **Phase 8**: ArgoCD GitOps deployment
+  - ArgoCD installed in cluster (namespace: `argocd`)
+  - `argocd/application.yaml`: Application resource with auto-sync, prune, and self-heal
+  - Full CI→CD loop verified: push code → CI builds → ArgoCD detects → rolling update → new pods running
+  - Zero manual deployment steps required
 
-### Next Steps (Resume Here) — Phase 7: GitHub Actions CI Pipeline
+### Next Steps (Resume Here) — Phase 9: End-to-End Verification
 
-**Goal:** Create an automated CI pipeline that lints, tests, builds a Docker image, pushes to Artifact Registry, and updates the Helm chart image tag on every push to `main`.
+**Goal:** Full pipeline test and documentation. Verify all success criteria from the PRD are met.
 
-**What the agent should do:**
-1. Write `.github/workflows/ci.yaml` with the full pipeline
-2. Optionally add Terraform resources for Workload Identity Federation (WIF) for GitHub Actions
-3. Provide step-by-step guidance for the human to configure WIF and GitHub settings
-
-**What the human will do manually:**
-1. Set up Workload Identity Federation in GCP (identity pool, provider, IAM bindings) — this allows GitHub Actions to authenticate to GCP without storing service account keys
-2. Configure GitHub repository settings (WIF provider resource name, GCP service account)
-3. Push a commit and verify the pipeline runs
-
-**Key context for the new session:**
-- GCP Project: `mcpauthprototype`
-- Artifact Registry: `europe-west1-docker.pkg.dev/mcpauthprototype/mcp-server`
-- Docker image: `europe-west1-docker.pkg.dev/mcpauthprototype/mcp-server/mcp-auth-prototype`
-- Current image tag: `v1` (CI will use git SHA tags going forward)
-- Helm values file: `helm/mcp-server/values.yaml` (image.tag field needs updating by CI)
-- GitHub repo: `achimstruve/MCPAuthPrototype`
-- Tests: `uv run pytest` (22 tests), Lint: `uv run ruff check .`
-- Python version: 3.11, Package manager: uv
-
-**CI pipeline should:**
-1. Checkout code
-2. Set up Python 3.11 + uv
-3. Install dependencies (`uv sync`)
-4. Lint (`uv run ruff check .`)
-5. Test (`uv run pytest`)
-6. Authenticate to GCP via Workload Identity Federation (OIDC, no stored keys)
-7. Build Docker image with git SHA tag
-8. Push to Artifact Registry
-9. Update `helm/mcp-server/values.yaml` with new image tag
-10. Commit and push the updated values.yaml
+**What needs to happen:**
+1. End-to-end test: push code change → CI → ArgoCD → verify new version
+2. Test auth flows with different tokens via port-forward
+3. Verify pod distribution across nodes
+4. Verify structured JSON logs
+5. Test resilience (delete a pod, watch it recreate)
+6. Update README with final project overview
 
 ### Infrastructure State
 - Terraform state is stored locally in `terraform/terraform.tfstate`
-- To see current state: `cd terraform && terraform show`
 - To verify no drift: `cd terraform && terraform plan` (should show no changes)
-- Helm release: `helm list -n mcp-prototype` shows the deployed chart
 - GKE cluster: `mcp-prototype` in `europe-west1-b` (3 nodes, all Ready)
+- ArgoCD: installed in `argocd` namespace, Application `mcp-server` synced and healthy
 - ESO: installed in `external-secrets` namespace, healthy
 - MCP server: 2 pods in `mcp-prototype` namespace, both 1/1 Ready
+- CI: GitHub Actions pipeline runs on push to main (path-filtered)
+- Image tags: git SHA based (e.g., `7bf5fde`), updated automatically by CI
 
 ### Lessons Learned
-- **ESO API version**: Newer ESO versions use `external-secrets.io/v1` (stable), not `v1beta1`. Always check with `kubectl api-resources | grep external-secrets`
-- **Python memory**: FastMCP + PyJWT + pydantic + uvicorn requires ~300MB at startup. Default 256Mi limit causes OOM kills (exit code 137). Use 512Mi minimum for Python MCP servers
-- **kubectl port-forward**: Creates a tunnel from any machine with cluster credentials to a Service inside the cluster. Works from any location — no VPN needed
+- **ESO API version**: Newer ESO versions use `external-secrets.io/v1` (stable), not `v1beta1`
+- **Python memory**: FastMCP + PyJWT + pydantic + uvicorn needs ~300MB. Use 512Mi limit minimum
+- **kubectl port-forward**: Works from any machine with cluster credentials — no VPN needed
+- **uv dev deps in CI**: `uv sync --frozen` only installs runtime deps. Use `--extra dev` for linting/testing tools
+- **ArgoCD CRD size**: Use `kubectl apply --server-side --force-conflicts` for large CRDs that exceed the 256KB annotation limit
+- **WIF for CI**: Workload Identity Federation eliminates stored keys. GitHub OIDC tokens are exchanged for short-lived GCP access tokens
 
-### Important Files for Next Session
-- `helm/mcp-server/values.yaml` - Contains `image.tag: v1` that CI will update
-- `helm/mcp-server/` - Complete Helm chart (10 files with educational comments)
-- `terraform/` - All infrastructure as code (may need WIF resources added)
+### Important Files
+- `.github/workflows/ci.yaml` - CI pipeline (lint, test, build, push, update Helm)
+- `argocd/application.yaml` - ArgoCD Application (auto-sync, self-heal)
+- `helm/mcp-server/values.yaml` - Image tag updated by CI (currently git SHA)
+- `helm/mcp-server/` - Complete Helm chart (10 templates)
+- `terraform/` - All infrastructure as code (including WIF for GitHub Actions)
 - `Dockerfile` - Multi-stage build with uv
-- `pyproject.toml` - Dependencies and project config
-- `IMPLEMENTATION_ROADMAP.md` - Checkbox progress tracker (Phase 7 section at line 190)
+- `IMPLEMENTATION_ROADMAP.md` - Checkbox progress tracker

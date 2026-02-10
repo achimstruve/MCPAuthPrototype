@@ -212,10 +212,34 @@ mcp-auth-prototype/
 │   ├── gke.tf             # GKE cluster definition
 │   ├── artifact-registry.tf  # Container registry
 │   ├── secret-manager.tf  # Secret Manager resources
-│   └── iam.tf             # Service accounts and IAM bindings
+│   ├── iam.tf             # Service accounts and IAM bindings
+│   └── github-wif.tf     # Workload Identity Federation for GitHub Actions
+├── .github/
+│   └── workflows/
+│       └── ci.yaml        # CI pipeline (lint, test, build, push, update Helm)
+├── argocd/
+│   └── application.yaml   # ArgoCD Application (GitOps auto-sync)
 ├── pyproject.toml         # Dependencies and tool configuration
 └── uv.lock                # Locked dependency versions
 ```
+
+## CI/CD Pipeline
+
+Every push to `main` triggers an automated pipeline:
+
+```
+git push ──▶ GitHub Actions ──▶ ArgoCD ──▶ GKE Cluster
+              │                   │
+              ├─ Lint (ruff)      ├─ Detects values.yaml change
+              ├─ Test (pytest)    ├─ Renders Helm chart
+              ├─ Build image      └─ Rolling update (zero downtime)
+              ├─ Push to Artifact Registry (git SHA tag)
+              └─ Update helm/mcp-server/values.yaml
+```
+
+- **No stored credentials**: GitHub Actions authenticates to GCP via Workload Identity Federation (OIDC token exchange)
+- **Immutable image tags**: Docker images are tagged with the git commit SHA (e.g., `a1b2c3d`), not `latest`
+- **GitOps**: ArgoCD continuously reconciles the cluster state with what's in Git — including self-healing if someone manually modifies the cluster
 
 ## Design Decisions
 
@@ -270,6 +294,9 @@ You can also set these in a `.env` file (gitignored).
 | Container Registry | GCP Artifact Registry | Docker image storage |
 | Orchestration | Google Kubernetes Engine | Container orchestration |
 | Secrets | GCP Secret Manager + ESO | Secure secret management |
+| CI | [GitHub Actions](https://docs.github.com/en/actions) | Automated lint, test, build, push |
+| CD | [ArgoCD](https://argo-cd.readthedocs.io/) | GitOps continuous deployment |
+| CI→GCP Auth | Workload Identity Federation | OIDC-based auth, no stored keys |
 
 ## Roadmap
 
@@ -282,8 +309,8 @@ See [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) for the full build pl
 - [x] Phase 4: Dockerize
 - [x] Phase 5: GCP Infrastructure + Terraform + GKE
 - [x] Phase 6: Helm chart
-- [ ] Phase 7: GitHub Actions CI pipeline
-- [ ] Phase 8: ArgoCD
+- [x] Phase 7: GitHub Actions CI pipeline
+- [x] Phase 8: ArgoCD
 - [ ] Phase 9: End-to-end verification
 - [ ] Phase 10: TLS Ingress (HTTPS) — Ingress controller, cert-manager, Let's Encrypt, encrypted external access
 - [ ] Phase 11: OAuth2 Token Service — Production token issuance via Google OAuth2, developer CLI, Claude Code integration

@@ -217,8 +217,8 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 - [x] **[AGENT]** Create `argocd/application.yaml`: ArgoCD Application resource (source: GitHub repo + helm/mcp-server path, destination: mcp-prototype namespace, auto-sync enabled)
 - [x] **[HUMAN]** Apply the Application: `kubectl apply -f argocd/application.yaml`
 - [x] **[HUMAN]** Verify in ArgoCD UI: Application shows as Synced and Healthy
-- [ ] **[HUMAN]** Test auto-sync: push a code change, wait for CI to update the image tag, watch ArgoCD deploy the new version
-- [ ] **[HUMAN]** Verify rolling update: observe old pods being replaced by new ones with `kubectl get pods -n mcp-prototype -w`
+- [x] **[HUMAN]** Test auto-sync: push a code change, wait for CI to update the image tag, watch ArgoCD deploy the new version
+- [x] **[HUMAN]** Verify rolling update: observe old pods being replaced by new ones with `kubectl get pods -n mcp-prototype -w`
 
 **Verify before moving on:** ArgoCD UI shows healthy application, auto-sync works on git push, rolling updates happen with zero downtime.
 
