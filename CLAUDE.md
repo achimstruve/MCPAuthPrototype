@@ -229,18 +229,28 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
   - `argocd/application.yaml`: Application resource with auto-sync, prune, and self-heal
   - Full CI→CD loop verified: push code → CI builds → ArgoCD detects → rolling update → new pods running
   - Zero manual deployment steps required
+- **Phase 9**: End-to-end verification complete
+  - CI→CD loop verified: push → GitHub Actions → ArgoCD → rolling update → new pods
+  - Auth flows verified with Claude Code: public-only token shows only `get_public_info`
+  - Pod distribution across nodes confirmed
+  - Structured JSON logs confirmed
+  - Resilience tested: deleted pod auto-recreated by Kubernetes
+  - Token must be signed with the GCP Secret Manager key (not the dev default)
 
-### Next Steps (Resume Here) — Phase 9: End-to-End Verification
+### Next Steps (Resume Here) — Phase 10: TLS Ingress (HTTPS)
 
-**Goal:** Full pipeline test and documentation. Verify all success criteria from the PRD are met.
+**Goal:** Expose the MCP server externally via HTTPS with automatic TLS certificate management using nginx-ingress and cert-manager with Let's Encrypt.
 
-**What needs to happen:**
-1. End-to-end test: push code change → CI → ArgoCD → verify new version
-2. Test auth flows with different tokens via port-forward
-3. Verify pod distribution across nodes
-4. Verify structured JSON logs
-5. Test resilience (delete a pod, watch it recreate)
-6. Update README with final project overview
+**What the agent should do:**
+1. Write Terraform for static IP reservation
+2. Write Helm templates for Ingress and ClusterIssuer
+3. Provide step-by-step guidance for nginx-ingress, cert-manager installation, and DNS setup
+
+**What the human will do manually:**
+1. Install nginx-ingress controller with static IP
+2. Install cert-manager
+3. Configure DNS A record pointing to static IP
+4. Verify HTTPS access and Claude Code connection over TLS
 
 ### Infrastructure State
 - Terraform state is stored locally in `terraform/terraform.tfstate`
@@ -259,6 +269,7 @@ Phase 0 (Scaffolding) → Phase 1 (MCP Server) → Phase 2 (Auth) → Phase 3 (T
 - **uv dev deps in CI**: `uv sync --frozen` only installs runtime deps. Use `--extra dev` for linting/testing tools
 - **ArgoCD CRD size**: Use `kubectl apply --server-side --force-conflicts` for large CRDs that exceed the 256KB annotation limit
 - **WIF for CI**: Workload Identity Federation eliminates stored keys. GitHub OIDC tokens are exchanged for short-lived GCP access tokens
+- **Token signing secret**: `generate_token` defaults to `dev-secret-change-me`. Deployed server uses the GCP Secret Manager key. Must use `--secret` flag with the actual secret: `gcloud secrets versions access latest --secret=mcp-jwt-signing-key`
 
 ### Important Files
 - `.github/workflows/ci.yaml` - CI pipeline (lint, test, build, push, update Helm)

@@ -230,16 +230,16 @@ This document tracks the step-by-step implementation of the Secure MCP Server Pr
 
 **Goal:** Full pipeline test and documentation.
 
-- [ ] **[BOTH]** End-to-end test: push code change → CI pipeline → ArgoCD sync → rolling update → verify new version is running
-- [ ] **[HUMAN]** Connect Claude Code (or MCP client) via port-forward with different tokens:
+- [x] **[BOTH]** End-to-end test: push code change → CI pipeline → ArgoCD sync → rolling update → verify new version is running
+- [x] **[HUMAN]** Connect Claude Code (or MCP client) via port-forward with different tokens:
   - Public-only token: verify only `get_public_info` is visible and callable
   - Full-access token: verify both tools are visible and callable
   - No token: verify rejection
   - Expired token: verify rejection
-- [ ] **[HUMAN]** Verify pod distribution: `kubectl get pods -n mcp-prototype -o wide` shows pods on different nodes
-- [ ] **[HUMAN]** Verify structured JSON logs: `kubectl logs -n mcp-prototype -l app.kubernetes.io/name=mcp-server`
-- [ ] **[HUMAN]** Test resilience: `kubectl delete pod <pod-name> -n mcp-prototype` and observe K8s recreating it
-- [ ] **[AGENT]** Update `README.md` with project overview, architecture summary, setup instructions, and usage examples
+- [x] **[HUMAN]** Verify pod distribution: `kubectl get pods -n mcp-prototype -o wide` shows pods on different nodes
+- [x] **[HUMAN]** Verify structured JSON logs: `kubectl logs -n mcp-prototype -l app.kubernetes.io/name=mcp-server`
+- [x] **[HUMAN]** Test resilience: `kubectl delete pod <pod-name> -n mcp-prototype` and observe K8s recreating it
+- [x] **[AGENT]** Update `README.md` with project overview, architecture summary, setup instructions, and usage examples
 
 **Verify:** All success criteria from the PRD are met (auth works, authorization works, deployment works, secrets are secure, observable, demonstrable, multi-replica orchestration visible).
 
